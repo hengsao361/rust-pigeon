@@ -15,6 +15,8 @@ use std::{
     time::Duration,
 };
 
+const FAST_CONFIRMATION_INTERVAL_MS: u64 = 100;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GateDecision {
     Waiting { seen: u8, required: u8 },
@@ -86,7 +88,7 @@ fn run_monitor(
     let mut last_candidate: Option<String> = None;
 
     loop {
-        let delay = Duration::from_millis(config.poll_interval_ms.clamp(100, 10_000));
+        let delay = monitor_delay(&config, &gate);
         match commands.recv_timeout(if active {
             delay
         } else {
@@ -205,6 +207,20 @@ fn run_monitor(
     }
 }
 
+fn monitor_delay(config: &AppConfig, gate: &StabilityGate) -> Duration {
+    let normal_ms = config.poll_interval_ms.clamp(100, 10_000);
+    let delay_ms = if gate.is_confirming() {
+        normal_ms.min(FAST_CONFIRMATION_INTERVAL_MS)
+    } else {
+        normal_ms
+    };
+    Duration::from_millis(delay_ms)
+}
+
+fn should_repeat_ocr(config: &AppConfig, gate: &StabilityGate) -> bool {
+    config.repeat_ocr_during_stability && gate.is_confirming()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn monitor_once(
     platform: &dyn Platform,
@@ -251,12 +267,16 @@ fn monitor_once(
     };
 
     let fingerprint = image.fingerprint();
-    if *last_fingerprint != Some(fingerprint) {
+    let repeat_ocr = should_repeat_ocr(config, gate);
+    if *last_fingerprint != Some(fingerprint) || repeat_ocr {
         *last_fingerprint = Some(fingerprint);
         let raw = match ocr.recognize(&image) {
             Ok(text) => text,
             Err(error) => {
                 let _ = events.send(MonitorEvent::Error(error));
+                if repeat_ocr {
+                    *last_fingerprint = None;
+                }
                 *last_candidate = None;
                 gate.observe(None);
                 return;
@@ -274,6 +294,9 @@ fn monitor_once(
             }
             None
         };
+        if repeat_ocr && last_candidate.is_none() {
+            *last_fingerprint = None;
+        }
     }
 
     match gate.observe(last_candidate.as_deref()) {
@@ -377,6 +400,10 @@ impl StabilityGate {
         self.reset_candidate();
     }
 
+    fn is_confirming(&self) -> bool {
+        self.current.is_some() && self.seen > 0 && self.seen < self.required
+    }
+
     fn reset_candidate(&mut self) {
         self.current = None;
         self.seen = 0;
@@ -444,5 +471,55 @@ mod tests {
             gate.observe(Some("03-0482758")),
             GateDecision::Ready(_)
         ));
+    }
+
+    #[test]
+    fn accelerates_only_while_confirming_a_new_candidate() {
+        let config = AppConfig::default();
+        let mut gate = StabilityGate::new(3, Some("0237849".to_owned()));
+
+        assert_eq!(monitor_delay(&config, &gate), Duration::from_millis(500));
+
+        assert!(matches!(
+            gate.observe(Some("03-0482758")),
+            GateDecision::Waiting { seen: 1, .. }
+        ));
+        assert_eq!(monitor_delay(&config, &gate), Duration::from_millis(100));
+
+        assert!(matches!(
+            gate.observe(Some("03-0482758")),
+            GateDecision::Waiting { seen: 2, .. }
+        ));
+        assert_eq!(monitor_delay(&config, &gate), Duration::from_millis(100));
+
+        assert!(matches!(
+            gate.observe(Some("03-0482758")),
+            GateDecision::Ready(_)
+        ));
+        gate.mark_printed("03-0482758".to_owned());
+        assert_eq!(monitor_delay(&config, &gate), Duration::from_millis(500));
+
+        assert_eq!(gate.observe(Some("03-0482758")), GateDecision::Duplicate);
+        assert_eq!(monitor_delay(&config, &gate), Duration::from_millis(500));
+    }
+
+    #[test]
+    fn repeated_ocr_switch_only_applies_during_stability_confirmation() {
+        let mut config = AppConfig::default();
+        let mut gate = StabilityGate::new(3, None);
+
+        assert!(!config.repeat_ocr_during_stability);
+        assert!(!gate.is_confirming());
+        assert!(!should_repeat_ocr(&config, &gate));
+
+        gate.observe(Some("03-0482758"));
+        assert!(gate.is_confirming());
+        assert!(!should_repeat_ocr(&config, &gate));
+
+        config.repeat_ocr_during_stability = true;
+        assert!(should_repeat_ocr(&config, &gate));
+
+        gate.observe(None);
+        assert!(!should_repeat_ocr(&config, &gate));
     }
 }

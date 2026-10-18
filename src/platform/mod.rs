@@ -22,11 +22,15 @@ impl CapturedImage {
 mod stub;
 #[cfg(windows)]
 mod windows;
+#[cfg(windows)]
+mod windows_overlay;
 
 #[cfg(not(windows))]
 pub use stub::*;
 #[cfg(windows)]
 pub use windows::*;
+#[cfg(windows)]
+pub use windows_overlay::*;
 
 pub trait Platform: Send + Sync + 'static {
     fn capture(&self, region: CaptureRegion) -> Result<CapturedImage, String>;

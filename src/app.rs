@@ -1,7 +1,10 @@
 use crate::{
     config::{AppConfig, CaptureRegion},
     monitor::{MonitorCommand, MonitorEvent, MonitorHandle},
-    platform::{CapturedImage, NativePlatform, Platform, spawn_region_hotkey},
+    platform::{
+        CapturedImage, NativePlatform, Platform, RegionOverlay, spawn_region_hotkey,
+        spawn_region_overlay,
+    },
     print_log,
     receipt::sanitize_channel_input,
 };
@@ -30,6 +33,7 @@ pub struct PigeonApp {
     hotkey: Option<Receiver<()>>,
     hotkey_requested: bool,
     selection_capture: Option<Receiver<SelectionCapture>>,
+    region_overlay: Option<RegionOverlay>,
 }
 
 struct RegionSelector {
@@ -50,11 +54,12 @@ impl PigeonApp {
         let monitor = MonitorHandle::spawn(Arc::clone(&platform), config.clone());
         let active = config.region.is_some() && !config.printer_name.trim().is_empty();
         let hotkey = spawn_region_hotkey().ok();
+        let region_overlay = spawn_region_overlay().ok();
         if active {
             let _ = monitor.commands.send(MonitorCommand::SetActive(true));
         }
 
-        Self {
+        let app = Self {
             config,
             platform,
             monitor,
@@ -70,7 +75,10 @@ impl PigeonApp {
             hotkey,
             hotkey_requested: false,
             selection_capture: None,
-        }
+            region_overlay,
+        };
+        app.sync_region_overlay();
+        app
     }
 
     fn begin_selection(&mut self, ctx: &egui::Context) {
@@ -79,6 +87,9 @@ impl PigeonApp {
         }
 
         let _ = self.monitor.commands.send(MonitorCommand::SetActive(false));
+        if let Some(overlay) = &self.region_overlay {
+            overlay.set_region(None);
+        }
         ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
         let platform = Arc::clone(&self.platform);
         let (sender, receiver) = std::sync::mpsc::channel();
@@ -125,6 +136,7 @@ impl PigeonApp {
                 self.status = error;
                 if self.active {
                     let _ = self.monitor.commands.send(MonitorCommand::SetActive(true));
+                    self.sync_region_overlay();
                 }
             }
         }
@@ -154,6 +166,7 @@ impl PigeonApp {
             self.status = "已取消框选".to_owned();
             if self.active {
                 let _ = self.monitor.commands.send(MonitorCommand::SetActive(true));
+                self.sync_region_overlay();
             }
         }
     }
@@ -182,6 +195,14 @@ impl PigeonApp {
             .monitor
             .commands
             .send(MonitorCommand::SetActive(active));
+        self.sync_region_overlay();
+    }
+
+    fn sync_region_overlay(&self) {
+        let region = self.active.then_some(self.config.region).flatten();
+        if let Some(overlay) = &self.region_overlay {
+            overlay.set_region(region);
+        }
     }
 
     fn drain_events(&mut self) {
@@ -200,6 +221,7 @@ impl PigeonApp {
                 MonitorEvent::DisplayChanged(message) => {
                     self.active = false;
                     let _ = self.monitor.commands.send(MonitorCommand::SetActive(false));
+                    self.sync_region_overlay();
                     self.status = message;
                 }
                 MonitorEvent::Error(error) => self.status = format!("错误：{error}"),
@@ -349,13 +371,9 @@ impl PigeonApp {
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                ui.label("二维码通道");
+                ui.label("鸽钟通道");
                 let channel_response = ui
                     .add(egui::TextEdit::singleline(&mut self.config.channel).desired_width(50.0));
-                ui.weak(format!(
-                    "二维码中显示为 {}",
-                    crate::receipt::format_channel(&self.config.channel)
-                ));
                 if channel_response.changed() {
                     self.config.channel = sanitize_channel_input(&self.config.channel);
                     self.apply_config();
@@ -391,7 +409,25 @@ impl PigeonApp {
                 {
                     self.set_active(false);
                 }
-                if ui.button("测试打印并切纸").clicked() {
+                let repeated_ocr = ui
+                    .checkbox(
+                        &mut self.config.repeat_ocr_during_stability,
+                        "稳定确认时重复 OCR",
+                    )
+                    .on_hover_text("开启后，新号码打印前会实际执行 3 次 OCR；默认关闭");
+                if repeated_ocr.changed() {
+                    self.apply_config();
+                }
+            });
+
+            ui.horizontal(|ui| {
+                if ui.button("打开日志目录").clicked() {
+                    match print_log::open_directory() {
+                        Ok(()) => self.status = "已打开日志目录".to_owned(),
+                        Err(error) => self.status = error,
+                    }
+                }
+                if ui.button("测试打印").clicked() {
                     if self.config.printer_name.is_empty() {
                         self.status = "请先选择打印机".to_owned();
                     } else {
@@ -400,9 +436,6 @@ impl PigeonApp {
                         });
                     }
                 }
-            });
-
-            ui.horizontal(|ui| {
                 let last_printed = self.config.last_printed.clone();
                 let can_reprint =
                     last_printed.is_some() && !self.config.printer_name.trim().is_empty();
@@ -416,17 +449,11 @@ impl PigeonApp {
                         value,
                     });
                 }
-                if ui.button("打开日志目录").clicked() {
-                    match print_log::open_directory() {
-                        Ok(()) => self.status = "已打开日志目录".to_owned(),
-                        Err(error) => self.status = error,
-                    }
-                }
             });
 
             ui.separator();
             ui.label("全局热键：Ctrl + Shift + R（重新框选并立即继续监控）");
-            ui.label("识别规则：正式地区码 01–33 或 JN；流水号固定为 7 位数字。");
+            ui.label("识别规则：正式地区码 01–33 或 JN；足环号固定为 7 位数字。");
             ui.monospace("2026-10-0178948  |  03-0482758  |  0237849");
             ui.add_space(8.0);
             ui.label("最近 OCR 原文");

@@ -32,3 +32,14 @@ pub fn spawn_region_hotkey() -> Result<Receiver<()>, String> {
     let (_sender, receiver) = mpsc::channel();
     Ok(receiver)
 }
+
+#[derive(Debug, Default)]
+pub struct RegionOverlay;
+
+impl RegionOverlay {
+    pub fn set_region(&self, _region: Option<CaptureRegion>) {}
+}
+
+pub fn spawn_region_overlay() -> Result<RegionOverlay, String> {
+    Ok(RegionOverlay)
+}

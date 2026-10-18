@@ -127,7 +127,16 @@ pub fn render_receipt(
 
     let (prefix, serial) = split_ring_number(&ticket.ring_number);
     if let Some(prefix) = prefix {
-        canvas.draw_text_box(&fonts.regular, prefix, 278, 91, 260, 68, 45.0, 25.0);
+        canvas.draw_text_box(
+            &fonts.regular,
+            &format!("{prefix}-"),
+            278,
+            91,
+            260,
+            68,
+            45.0,
+            25.0,
+        );
     }
     canvas.draw_text_box(&fonts.digits, serial, 274, 157, 268, 104, 76.0, 38.0);
 
@@ -415,5 +424,15 @@ mod tests {
                 .any(|part| part == [0x1d, 0x76, 0x30, 0x00, 2, 0, 2, 0])
         );
         assert!(bytes.ends_with(&[0x1d, 0x56, 0x42, 0x00]));
+    }
+
+    #[test]
+    fn split_display_keeps_separator_with_prefix() {
+        assert_eq!(
+            split_ring_number("2026-03-0015369"),
+            (Some("2026-03"), "0015369")
+        );
+        assert_eq!(split_ring_number("JN-0347895"), (Some("JN"), "0347895"));
+        assert_eq!(split_ring_number("0237849"), (None, "0237849"));
     }
 }
