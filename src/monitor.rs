@@ -283,7 +283,7 @@ fn monitor_once(
             }
         };
         let _ = events.send(MonitorEvent::OcrText(raw.clone()));
-        let matches = extract_ring_numbers(&raw);
+        let matches = extract_ring_numbers(&raw, config.combine_ocr_lines);
         *last_candidate = if matches.len() == 1 {
             Some(matches[0].as_str().to_owned())
         } else {

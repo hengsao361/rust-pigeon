@@ -45,6 +45,7 @@ pub struct AppConfig {
     pub poll_interval_ms: u64,
     pub stable_observations: u8,
     pub repeat_ocr_during_stability: bool,
+    pub combine_ocr_lines: bool,
     pub last_printed: Option<String>,
     pub channel: String,
     #[serde(skip, default = "random_business_content")]
@@ -61,6 +62,7 @@ impl Default for AppConfig {
             poll_interval_ms: 500,
             stable_observations: 3,
             repeat_ocr_during_stability: false,
+            combine_ocr_lines: false,
             last_printed: None,
             channel: "0".to_owned(),
             business_content: random_business_content(),
@@ -161,16 +163,22 @@ mod tests {
     }
 
     #[test]
-    fn repeated_ocr_is_disabled_by_default_and_for_older_configs() {
+    fn optional_recognition_modes_are_disabled_by_default_and_for_older_configs() {
         let default_config = AppConfig::default();
         assert!(!default_config.repeat_ocr_during_stability);
+        assert!(!default_config.combine_ocr_lines);
         assert_eq!(
             serde_json::to_value(&default_config).unwrap()["repeat_ocr_during_stability"],
+            false
+        );
+        assert_eq!(
+            serde_json::to_value(&default_config).unwrap()["combine_ocr_lines"],
             false
         );
 
         let config: AppConfig = serde_json::from_str("{}").unwrap();
         assert!(!config.repeat_ocr_during_stability);
+        assert!(!config.combine_ocr_lines);
     }
 
     #[test]

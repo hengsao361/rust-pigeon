@@ -318,6 +318,12 @@ impl PigeonApp {
                 if repeated_ocr.changed() {
                     self.apply_config();
                 }
+                let combine_lines = ui
+                    .checkbox(&mut self.config.combine_ocr_lines, "跨行组合识别")
+                    .on_hover_text("开启后可将多行 OCR 文本组合成完整足环号；默认关闭");
+                if combine_lines.changed() {
+                    self.apply_config();
+                }
             });
 
             ui.horizontal(|ui| {
