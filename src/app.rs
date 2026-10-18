@@ -7,11 +7,12 @@ use crate::{
     },
     print_log,
     receipt::sanitize_channel_input,
+    ring::OcrFormat,
 };
 use eframe::egui::{self, Align, Color32, Vec2, ViewportCommand};
 use std::sync::{Arc, mpsc::Receiver};
 
-pub const MAIN_WINDOW_SIZE: Vec2 = Vec2::new(620.0, 540.0);
+pub const MAIN_WINDOW_SIZE: Vec2 = Vec2::new(620.0, 600.0);
 pub const APP_VERSION: &str = match option_env!("RUST_PIGEON_BUILD_VERSION") {
     Some(version) => version,
     None => env!("CARGO_PKG_VERSION"),
@@ -206,7 +207,7 @@ impl PigeonApp {
         let ctx = ui.ctx().clone();
         egui::Frame::central_panel(ui.style()).show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.heading("信鸽足环自动识别打印");
+                ui.heading("羽成达-信鸽足环自动识别打印");
                 ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
                     ui.weak(format!("v{APP_VERSION}"));
                 });
@@ -285,7 +286,7 @@ impl PigeonApp {
                 let response = ui.add(
                     egui::TextEdit::singleline(&mut self.config.business_content)
                         .desired_width(260.0)
-                        .hint_text("请输入票据顶部内容"),
+                        .hint_text("请输入票据顶部业务内容"),
                 );
                 if response.changed() {
                     self.config.business_content =
@@ -318,13 +319,19 @@ impl PigeonApp {
                 if repeated_ocr.changed() {
                     self.apply_config();
                 }
-                let combine_lines = ui
-                    .checkbox(&mut self.config.combine_ocr_lines, "跨行组合识别")
-                    .on_hover_text("开启后可将多行 OCR 文本组合成完整足环号；默认关闭");
-                if combine_lines.changed() {
-                    self.apply_config();
+            });
+
+            ui.add_space(6.0);
+            ui.label("OCR 识别格式（单选）");
+            let previous_format = self.config.ocr_format;
+            ui.horizontal_wrapped(|ui| {
+                for format in OcrFormat::ALL {
+                    ui.radio_value(&mut self.config.ocr_format, format, format.label());
                 }
             });
+            if previous_format != self.config.ocr_format {
+                self.apply_config();
+            }
 
             ui.horizontal(|ui| {
                 if ui.button("打开日志目录").clicked() {
@@ -359,8 +366,7 @@ impl PigeonApp {
 
             ui.separator();
             ui.label("全局热键：Ctrl + Shift + R（重新框选并立即继续监控）");
-            ui.label("识别规则：正式地区码 01–33 或 JN；足环号固定为 7 位数字。");
-            ui.monospace("2026-10-0178948  |  03-0482758  |  0237849");
+            ui.label("三段/两段格式只接受正式地区码 01–33 或 JN；纯数字严格匹配所选位数。");
             ui.add_space(8.0);
             ui.label("最近 OCR 原文");
             ui.add(

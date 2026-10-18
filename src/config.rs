@@ -1,4 +1,7 @@
-use crate::receipt::{random_business_content, sanitize_channel_input};
+use crate::{
+    receipt::{random_business_content, sanitize_channel_input},
+    ring::OcrFormat,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     fs, io,
@@ -45,7 +48,7 @@ pub struct AppConfig {
     pub poll_interval_ms: u64,
     pub stable_observations: u8,
     pub repeat_ocr_during_stability: bool,
-    pub combine_ocr_lines: bool,
+    pub ocr_format: OcrFormat,
     pub last_printed: Option<String>,
     pub channel: String,
     #[serde(skip, default = "random_business_content")]
@@ -62,7 +65,7 @@ impl Default for AppConfig {
             poll_interval_ms: 500,
             stable_observations: 3,
             repeat_ocr_during_stability: false,
-            combine_ocr_lines: false,
+            ocr_format: OcrFormat::default(),
             last_printed: None,
             channel: "0".to_owned(),
             business_content: random_business_content(),
@@ -163,22 +166,22 @@ mod tests {
     }
 
     #[test]
-    fn optional_recognition_modes_are_disabled_by_default_and_for_older_configs() {
+    fn recognition_options_have_safe_defaults_for_older_configs() {
         let default_config = AppConfig::default();
         assert!(!default_config.repeat_ocr_during_stability);
-        assert!(!default_config.combine_ocr_lines);
+        assert_eq!(default_config.ocr_format, OcrFormat::SingleLineThreePart);
         assert_eq!(
             serde_json::to_value(&default_config).unwrap()["repeat_ocr_during_stability"],
             false
         );
         assert_eq!(
-            serde_json::to_value(&default_config).unwrap()["combine_ocr_lines"],
-            false
+            serde_json::to_value(&default_config).unwrap()["ocr_format"],
+            "single_line_three_part"
         );
 
         let config: AppConfig = serde_json::from_str("{}").unwrap();
         assert!(!config.repeat_ocr_during_stability);
-        assert!(!config.combine_ocr_lines);
+        assert_eq!(config.ocr_format, OcrFormat::SingleLineThreePart);
     }
 
     #[test]

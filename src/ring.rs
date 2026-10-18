@@ -1,8 +1,60 @@
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 const MIN_REGION_CODE: u8 = 1;
 const MAX_REGION_CODE: u8 = 33;
-const MAX_CANDIDATE_TOKENS: usize = 10;
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OcrFormat {
+    #[default]
+    SingleLineThreePart,
+    MultilineThreePart,
+    SingleLineTwoPart,
+    SingleLineDigits7,
+    SingleLineDigits6,
+    SingleLineDigits5,
+    SingleLineDigits4,
+}
+
+impl OcrFormat {
+    pub const ALL: [Self; 7] = [
+        Self::SingleLineThreePart,
+        Self::MultilineThreePart,
+        Self::SingleLineTwoPart,
+        Self::SingleLineDigits7,
+        Self::SingleLineDigits6,
+        Self::SingleLineDigits5,
+        Self::SingleLineDigits4,
+    ];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::SingleLineThreePart => "单行三段",
+            Self::MultilineThreePart => "跨行三段",
+            Self::SingleLineTwoPart => "单行两段",
+            Self::SingleLineDigits7 => "单行纯数字7位",
+            Self::SingleLineDigits6 => "单行纯数字6位",
+            Self::SingleLineDigits5 => "单行纯数字5位",
+            Self::SingleLineDigits4 => "单行纯数字4位",
+        }
+    }
+
+    const fn combines_lines(self) -> bool {
+        matches!(self, Self::MultilineThreePart)
+    }
+
+    const fn max_candidate_tokens(self) -> usize {
+        match self {
+            Self::SingleLineThreePart | Self::MultilineThreePart => 13,
+            Self::SingleLineTwoPart => 9,
+            Self::SingleLineDigits7 => 7,
+            Self::SingleLineDigits6 => 6,
+            Self::SingleLineDigits5 => 5,
+            Self::SingleLineDigits4 => 4,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RingNumber(String);
@@ -12,16 +64,22 @@ impl RingNumber {
         &self.0
     }
 
-    pub fn parse_exact(input: &str) -> Option<Self> {
+    pub fn parse_exact(input: &str, format: OcrFormat) -> Option<Self> {
         let normalized = normalize_candidate(input);
         let parts: Vec<_> = normalized.split('-').collect();
 
-        let valid = match parts.as_slice() {
-            [serial] => valid_serial(serial),
-            [region, serial] => valid_region(region) && valid_serial(serial),
-            [year, region, serial] => {
-                valid_year(year) && valid_region(region) && valid_serial(serial)
+        let valid = match (format, parts.as_slice()) {
+            (
+                OcrFormat::SingleLineThreePart | OcrFormat::MultilineThreePart,
+                [year, region, serial],
+            ) => valid_year(year) && valid_region(region) && valid_serial(serial),
+            (OcrFormat::SingleLineTwoPart, [region, serial]) => {
+                valid_region(region) && valid_serial(serial)
             }
+            (OcrFormat::SingleLineDigits7, [digits]) => valid_digits(digits, 7),
+            (OcrFormat::SingleLineDigits6, [digits]) => valid_digits(digits, 6),
+            (OcrFormat::SingleLineDigits5, [digits]) => valid_digits(digits, 5),
+            (OcrFormat::SingleLineDigits4, [digits]) => valid_digits(digits, 4),
             _ => false,
         };
 
@@ -29,31 +87,31 @@ impl RingNumber {
     }
 }
 
-pub fn extract_ring_numbers(raw: &str, combine_lines: bool) -> Vec<RingNumber> {
+pub fn extract_ring_numbers(raw: &str, format: OcrFormat) -> Vec<RingNumber> {
     let mut found = BTreeSet::new();
-    if combine_lines {
-        extract_from_segment(raw, &mut found);
+    if format.combines_lines() {
+        extract_from_segment(raw, format, &mut found);
     } else {
         for line in raw.lines() {
-            extract_from_segment(line, &mut found);
+            extract_from_segment(line, format, &mut found);
         }
     }
 
     found.into_iter().map(RingNumber).collect()
 }
 
-fn extract_from_segment(raw: &str, found: &mut BTreeSet<String>) {
+fn extract_from_segment(raw: &str, format: OcrFormat, found: &mut BTreeSet<String>) {
     let normalized = collapse_hyphen_whitespace(&normalize_text(raw));
     let tokens: Vec<_> = normalized.split_whitespace().collect();
     let mut index = 0;
 
     while index < tokens.len() {
         let mut consumed = 0;
-        let max_width = MAX_CANDIDATE_TOKENS.min(tokens.len() - index);
+        let max_width = format.max_candidate_tokens().min(tokens.len() - index);
         for width in (1..=max_width).rev() {
             let mut matched = false;
             for candidate in candidate_variants(&tokens[index..index + width]) {
-                if let Some(ring) = RingNumber::parse_exact(&candidate) {
+                if let Some(ring) = RingNumber::parse_exact(&candidate, format) {
                     found.insert(ring.0);
                     matched = true;
                 }
@@ -86,7 +144,7 @@ fn extract_from_segment(raw: &str, found: &mut BTreeSet<String>) {
                     continue;
                 }
                 let candidate = parts[start..start + width].join("-");
-                if let Some(ring) = RingNumber::parse_exact(&candidate) {
+                if let Some(ring) = RingNumber::parse_exact(&candidate, format) {
                     found.insert(ring.0);
                     found_at_this_width = true;
                 }
@@ -190,7 +248,11 @@ fn valid_region(value: &str) -> bool {
 }
 
 fn valid_serial(value: &str) -> bool {
-    value.len() == 7 && value.bytes().all(|byte| byte.is_ascii_digit())
+    valid_digits(value, 7)
+}
+
+fn valid_digits(value: &str, length: usize) -> bool {
+    value.len() == length && value.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 #[cfg(test)]
@@ -198,83 +260,104 @@ mod tests {
     use super::*;
 
     #[test]
-    fn accepts_all_supported_shapes() {
-        for value in [
-            "2026-10-0178948",
-            "2026-JN-0387764",
-            "03-0482758",
-            "JN-0347895",
-            "0237849",
+    fn accepts_each_configured_format() {
+        for (format, value) in [
+            (OcrFormat::SingleLineThreePart, "2026-10-0178948"),
+            (OcrFormat::MultilineThreePart, "2026-JN-0387764"),
+            (OcrFormat::SingleLineTwoPart, "03-0482758"),
+            (OcrFormat::SingleLineDigits7, "0237849"),
+            (OcrFormat::SingleLineDigits6, "237849"),
+            (OcrFormat::SingleLineDigits5, "37849"),
+            (OcrFormat::SingleLineDigits4, "7849"),
         ] {
-            assert_eq!(RingNumber::parse_exact(value).unwrap().as_str(), value);
+            assert_eq!(
+                RingNumber::parse_exact(value, format).unwrap().as_str(),
+                value
+            );
         }
     }
 
     #[test]
-    fn rejects_unofficial_regions_and_bad_shapes() {
-        for value in [
-            "2026-00-0178948",
-            "2026-34-0178948",
-            "34-0178948",
-            "2026-10-178948",
-            "2026-0178948",
-            "12345678",
+    fn selected_format_rejects_other_shapes_and_invalid_values() {
+        for (format, value) in [
+            (OcrFormat::SingleLineThreePart, "2026-00-0178948"),
+            (OcrFormat::SingleLineThreePart, "2026-34-0178948"),
+            (OcrFormat::SingleLineThreePart, "03-0482758"),
+            (OcrFormat::SingleLineTwoPart, "2026-03-0482758"),
+            (OcrFormat::SingleLineTwoPart, "34-0482758"),
+            (OcrFormat::SingleLineDigits7, "123456"),
+            (OcrFormat::SingleLineDigits6, "1234567"),
+            (OcrFormat::SingleLineDigits5, "123456"),
+            (OcrFormat::SingleLineDigits4, "12345"),
         ] {
-            assert!(RingNumber::parse_exact(value).is_none(), "{value}");
+            assert!(RingNumber::parse_exact(value, format).is_none(), "{value}");
         }
     }
 
     #[test]
     fn extracts_from_labels_and_normalizes_common_ocr_errors() {
-        let values = extract_ring_numbers("足环号： 2026－1O－O178948\nignore me", false);
+        let values = extract_ring_numbers(
+            "足环号： 2026－1O－O178948\nignore me",
+            OcrFormat::SingleLineThreePart,
+        );
         assert_eq!(values.len(), 1);
         assert_eq!(values[0].as_str(), "2026-10-0178948");
     }
 
     #[test]
     fn extracts_jn_case_insensitively() {
-        let values = extract_ring_numbers("Ring: jn - 0347895", false);
+        let values = extract_ring_numbers("Ring: jn - 0347895", OcrFormat::SingleLineTwoPart);
         assert_eq!(values[0].as_str(), "JN-0347895");
     }
 
     #[test]
-    fn joins_ring_numbers_split_across_lines() {
+    fn multiline_three_part_joins_supported_line_layouts() {
         for (raw, expected) in [
+            ("2025-04-0347618", "2025-04-0347618"),
             ("2025-02\n0348234", "2025-02-0348234"),
+            ("2025-04-\n0347618", "2025-04-0347618"),
             ("2026\n03-0498274", "2026-03-0498274"),
             ("2027\nJN\n1234567", "2027-JN-1234567"),
-            ("RING NO.\n04\n7654321", "04-7654321"),
-            ("2 1\n765 4 321", "21-7654321"),
             ("2026\n0 1\n038 7 764", "2026-01-0387764"),
         ] {
-            let values = extract_ring_numbers(raw, true);
+            let values = extract_ring_numbers(raw, OcrFormat::MultilineThreePart);
             assert_eq!(values.len(), 1, "{raw:?}");
             assert_eq!(values[0].as_str(), expected);
         }
+
+        assert!(extract_ring_numbers("03-\n4857234", OcrFormat::MultilineThreePart).is_empty());
     }
 
     #[test]
-    fn keeps_ocr_lines_independent_when_combining_is_disabled() {
-        let values = extract_ring_numbers("2025-02\n0348234", false);
-        let text: Vec<_> = values.iter().map(RingNumber::as_str).collect();
-        assert_eq!(text, ["0348234"]);
-
-        let values = extract_ring_numbers("2026\n03-0498274", false);
-        let text: Vec<_> = values.iter().map(RingNumber::as_str).collect();
-        assert_eq!(text, ["03-0498274"]);
+    fn single_line_modes_never_combine_lines() {
+        assert!(
+            extract_ring_numbers("2025-02\n0348234", OcrFormat::SingleLineThreePart).is_empty()
+        );
+        assert!(extract_ring_numbers("03-\n0482758", OcrFormat::SingleLineTwoPart).is_empty());
+        assert!(extract_ring_numbers("023\n7849", OcrFormat::SingleLineDigits7).is_empty());
     }
 
     #[test]
-    fn repairs_whitespace_inside_region_and_serial_number() {
+    fn repairs_ocr_whitespace_within_the_selected_single_line_format() {
         for (raw, expected) in [
-            ("0 1-0123456", "01-0123456"),
-            ("1 1 - 001 2 345", "11-0012345"),
-            ("2026-2 1-001 5 369", "2026-21-0015369"),
             ("203 1 - 0 1 - 001 5 369", "2031-01-0015369"),
             ("2031- 11-0015369", "2031-11-0015369"),
-            ("023 1 849", "0231849"),
         ] {
-            let values = extract_ring_numbers(raw, false);
+            let values = extract_ring_numbers(raw, OcrFormat::SingleLineThreePart);
+            assert_eq!(values.len(), 1, "{raw:?}");
+            assert_eq!(values[0].as_str(), expected, "{raw:?}");
+        }
+
+        let values = extract_ring_numbers("1 1 - 001 2 345", OcrFormat::SingleLineTwoPart);
+        assert_eq!(values[0].as_str(), "11-0012345");
+
+        for (format, raw, expected) in [
+            (OcrFormat::SingleLineDigits7, "023 1 849", "0231849"),
+            (OcrFormat::SingleLineDigits6, "23 7 849", "237849"),
+            (OcrFormat::SingleLineDigits5, "3 7 849", "37849"),
+            (OcrFormat::SingleLineDigits4, "7 849", "7849"),
+        ] {
+            let values = extract_ring_numbers(raw, format);
             assert_eq!(values.len(), 1, "{raw:?}");
             assert_eq!(values[0].as_str(), expected, "{raw:?}");
         }
@@ -282,24 +365,29 @@ mod tests {
 
     #[test]
     fn does_not_merge_two_serials() {
-        let values = extract_ring_numbers("1234567 7654321", false);
+        let values = extract_ring_numbers("1234567 7654321", OcrFormat::SingleLineDigits7);
         let text: Vec<_> = values.iter().map(RingNumber::as_str).collect();
         assert_eq!(text, ["1234567", "7654321"]);
     }
 
     #[test]
-    fn returns_unique_sorted_matches() {
-        let values = extract_ring_numbers("0237849 / 0237849 / 03-0482758", false);
+    fn returns_unique_sorted_matches_for_the_selected_format() {
+        let values = extract_ring_numbers(
+            "0237849 / 0237849 / 7654321 / 03-0482758",
+            OcrFormat::SingleLineDigits7,
+        );
         let text: Vec<_> = values.iter().map(RingNumber::as_str).collect();
-        assert_eq!(text, ["0237849", "03-0482758"]);
+        assert_eq!(text, ["0237849", "7654321"]);
     }
 
     #[test]
     fn does_not_downgrade_a_malformed_long_number_to_a_shorter_valid_shape() {
-        assert!(extract_ring_numbers("RING2026-10-0178948", false).is_empty());
-        assert!(extract_ring_numbers("2026-99-0178948", false).is_empty());
+        assert!(
+            extract_ring_numbers("RING2026-10-0178948", OcrFormat::SingleLineThreePart).is_empty()
+        );
+        assert!(extract_ring_numbers("2026-99-0178948", OcrFormat::SingleLineThreePart).is_empty());
         assert_eq!(
-            extract_ring_numbers("RING-03-0482758", false)[0].as_str(),
+            extract_ring_numbers("RING-03-0482758", OcrFormat::SingleLineTwoPart)[0].as_str(),
             "03-0482758"
         );
     }

@@ -113,7 +113,7 @@ fn run_monitor(
                 let _ = events.send(MonitorEvent::Status(text.to_owned()));
             }
             Ok(MonitorCommand::TestPrint { printer_name }) => {
-                let value = "2026-10-0178948";
+                let value = "2025-05-2025050";
                 let ticket = print_ticket(&config, value);
                 match platform.print_ring(&printer_name, &ticket) {
                     Ok(()) => {
@@ -283,7 +283,7 @@ fn monitor_once(
             }
         };
         let _ = events.send(MonitorEvent::OcrText(raw.clone()));
-        let matches = extract_ring_numbers(&raw, config.combine_ocr_lines);
+        let matches = extract_ring_numbers(&raw, config.ocr_format);
         *last_candidate = if matches.len() == 1 {
             Some(matches[0].as_str().to_owned())
         } else {
