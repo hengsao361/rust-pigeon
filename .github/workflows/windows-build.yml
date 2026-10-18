@@ -1,0 +1,96 @@
+name: Windows build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build portable Windows package
+    runs-on: windows-2022
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup component add clippy
+          rustc --version
+          cargo --version
+
+      - name: Run tests
+        run: cargo test --locked
+
+      - name: Run Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Install Tesseract OCR
+        shell: pwsh
+        run: |
+          choco install tesseract --yes --no-progress
+          $tesseractDir = Join-Path $env:ProgramFiles "Tesseract-OCR"
+          $tesseractExe = Join-Path $tesseractDir "tesseract.exe"
+          $englishModel = Join-Path $tesseractDir "tessdata\eng.traineddata"
+
+          if (-not (Test-Path $tesseractExe)) {
+            throw "Tesseract executable was not installed at $tesseractExe"
+          }
+
+          if (-not (Test-Path $englishModel)) {
+            throw "English OCR model was not installed at $englishModel"
+          }
+
+          & $tesseractExe --version
+          "TESSERACT_DIR=$tesseractDir" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build portable ZIP
+        shell: pwsh
+        run: |
+          .\scripts\package-windows.ps1 -TesseractDir $env:TESSERACT_DIR
+
+      - name: Verify package contents
+        shell: pwsh
+        run: |
+          $archive = "dist\rust-pigeon-windows-x64.zip"
+          $verifyDir = Join-Path $env:RUNNER_TEMP "rust-pigeon-package"
+          Expand-Archive -Path $archive -DestinationPath $verifyDir -Force
+
+          $requiredFiles = @(
+            (Join-Path $verifyDir "rust-pigeon.exe"),
+            (Join-Path $verifyDir "tesseract\tesseract.exe"),
+            (Join-Path $verifyDir "tesseract\tessdata\eng.traineddata")
+          )
+
+          foreach ($file in $requiredFiles) {
+            if (-not (Test-Path $file)) {
+              throw "Missing required package file: $file"
+            }
+          }
+
+          Get-Item $archive | Format-List FullName, Length
+
+      - name: Upload Windows ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-pigeon-windows-x64
+          path: dist/rust-pigeon-windows-x64.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
