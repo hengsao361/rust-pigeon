@@ -9,6 +9,7 @@ Windows 屏幕区域足环号 OCR 监控与佳博 GP-801CE 静默打印客户端
 3. 程序每 500ms 检查区域；画面发生变化时执行本地 OCR。
 4. 唯一合法编号连续稳定 3 次后，通过指定打印队列发送 ESC/POS RAW 数据。
 5. 打印后自动走纸并执行部分切纸；相同内容不会重复打印。
+6. 每次自动打印、再次打印和测试打印成功后，写入本地 JSONL 日志。
 
 程序不实现开机自启，不访问系统默认打印机。关闭程序即停止监控；最小化窗口不会停止监控。
 
@@ -20,13 +21,56 @@ Windows 屏幕区域足环号 OCR 监控与佳博 GP-801CE 静默打印客户端
 
 可以从带有“足环号”等标签的 OCR 文本中抽取编号。中文/长横线会统一为 `-`；数字位置会修正 `O → 0`、`I/l → 1`。如果同一画面内出现多个合法编号，为防止误打，本次不会打印。
 
+支持号码跨行显示，例如：
+
+```text
+2025-02
+0348234
+
+2026
+03-0498274
+```
+
+会分别组合为 `2025-02-0348234` 和 `2026-03-0498274`，不会误打印为较短的子号码。
+
 ## Windows 运行要求
 
 - Windows 10/11 x64。
 - 佳博 GP-801CE 已安装官方驱动，并能在“打印机和扫描仪”中正常测试打印。
-- Tesseract 5 英文模型。发布包将其放在程序旁的 `tesseract` 子目录，不需要单独配置 PATH。
+- Tesseract 5 英文模型。发布包将其固定放在程序旁的 `tesseract` 子目录，不需要配置 PATH，主界面也不显示其内部路径。
 
-配置保存在 `%APPDATA%\RustPigeon\config.json`。最后一次成功打印的编号也会持久化，因此重启程序不会立即重复打印静止画面中的旧编号。
+所有应用数据统一保存在 `%APPDATA%\RustPigeon`：
+
+- 配置：`%APPDATA%\RustPigeon\config.json`
+- 打印日志：`%APPDATA%\RustPigeon\logs\print-history.jsonl`
+- 上传状态：`%APPDATA%\RustPigeon\logs\upload-status.log`
+
+旧版本由 eframe 创建的 `%APPDATA%\Rust Pigeon` 窗口状态目录会在启动时安全清理。最后一次成功打印的编号会持久化，因此重启程序不会立即重复打印静止画面中的旧编号。主界面的“再次打印”按钮可以手动重打最近一次成功识别的号码，“打开日志目录”按钮会直接打开上述日志文件夹。
+
+## 显示器与分辨率变化
+
+捕捉区域使用 Windows 虚拟桌面的物理像素坐标，支持副屏位于主屏左侧时产生的负坐标。框选时按实际显示截图与窗口尺寸分别计算横纵缩放，避免单一 DPI 比例造成坐标偏移。
+
+如果框选完成后更改显示器分辨率、缩放比例或显示器排列，原坐标可能已不再对应原内容。程序会暂停监控并提示重新框选，防止截错区域后误打印。
+
+## 关闭时上传打印日志
+
+关闭窗口时，程序会先等待监控线程结束，再尝试上传完整的 `print-history.jsonl`。云端接口尚未绑定到特定服务，通过用户环境变量配置：
+
+```powershell
+[Environment]::SetEnvironmentVariable(
+  "RUST_PIGEON_LOG_UPLOAD_URL",
+  "https://example.com/api/pigeon-print-logs",
+  "User"
+)
+[Environment]::SetEnvironmentVariable(
+  "RUST_PIGEON_LOG_UPLOAD_TOKEN",
+  "your-bearer-token",
+  "User"
+)
+```
+
+上传请求使用 `POST`、`Content-Type: application/x-ndjson`，正文为完整日志快照，并携带 `X-Rust-Pigeon-Upload-Mode: full-snapshot`。Token 可选；配置后通过 `Authorization: Bearer ...` 发送。未配置上传 URL 时只写本地日志，不产生网络请求；上传连接超时为 3 秒，总超时为 10 秒，失败不会删除本地记录。
 
 ## 开发与验证
 

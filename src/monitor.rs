@@ -2,6 +2,7 @@ use crate::{
     config::AppConfig,
     ocr::{OcrEngine, TesseractCli},
     platform::Platform,
+    print_log::{self, PrintAction},
     ring::extract_ring_numbers,
 };
 use std::{
@@ -26,6 +27,7 @@ pub enum MonitorCommand {
     Configure(AppConfig),
     SetActive(bool),
     TestPrint { printer_name: String },
+    Reprint { printer_name: String, value: String },
     Shutdown,
 }
 
@@ -34,12 +36,15 @@ pub enum MonitorEvent {
     Status(String),
     OcrText(String),
     Printed(String),
+    Reprinted(String),
+    DisplayChanged(String),
     Error(String),
 }
 
 pub struct MonitorHandle {
     pub commands: Sender<MonitorCommand>,
     pub events: Receiver<MonitorEvent>,
+    worker: Option<thread::JoinHandle<()>>,
 }
 
 impl MonitorHandle {
@@ -47,7 +52,7 @@ impl MonitorHandle {
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
 
-        thread::Builder::new()
+        let worker = thread::Builder::new()
             .name("pigeon-monitor".to_owned())
             .spawn(move || run_monitor(platform, initial, command_rx, event_tx))
             .expect("failed to start monitor thread");
@@ -55,6 +60,14 @@ impl MonitorHandle {
         Self {
             commands: command_tx,
             events: event_rx,
+            worker: Some(worker),
+        }
+    }
+
+    pub fn shutdown(&mut self) {
+        let _ = self.commands.send(MonitorCommand::Shutdown);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
         }
     }
 }
@@ -99,13 +112,29 @@ fn run_monitor(
             Ok(MonitorCommand::TestPrint { printer_name }) => {
                 match platform.print_ring(&printer_name, "2026-10-0178948") {
                     Ok(()) => {
+                        let log_error =
+                            log_print_success("2026-10-0178948", &printer_name, PrintAction::Test);
                         let _ = events.send(MonitorEvent::Status("测试打印已发送".to_owned()));
+                        send_log_error(&events, log_error);
                     }
                     Err(error) => {
                         let _ = events.send(MonitorEvent::Error(error));
                     }
                 }
             }
+            Ok(MonitorCommand::Reprint {
+                printer_name,
+                value,
+            }) => match platform.print_ring(&printer_name, &value) {
+                Ok(()) => {
+                    let log_error = log_print_success(&value, &printer_name, PrintAction::Reprint);
+                    let _ = events.send(MonitorEvent::Reprinted(value));
+                    send_log_error(&events, log_error);
+                }
+                Err(error) => {
+                    let _ = events.send(MonitorEvent::Error(error));
+                }
+            },
             Ok(MonitorCommand::Shutdown) => break,
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
             Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -141,13 +170,33 @@ fn run_monitor(
                 Ok(MonitorCommand::TestPrint { printer_name }) => {
                     match platform.print_ring(&printer_name, "2026-10-0178948") {
                         Ok(()) => {
+                            let log_error = log_print_success(
+                                "2026-10-0178948",
+                                &printer_name,
+                                PrintAction::Test,
+                            );
                             let _ = events.send(MonitorEvent::Status("测试打印已发送".to_owned()));
+                            send_log_error(&events, log_error);
                         }
                         Err(error) => {
                             let _ = events.send(MonitorEvent::Error(error));
                         }
                     }
                 }
+                Ok(MonitorCommand::Reprint {
+                    printer_name,
+                    value,
+                }) => match platform.print_ring(&printer_name, &value) {
+                    Ok(()) => {
+                        let log_error =
+                            log_print_success(&value, &printer_name, PrintAction::Reprint);
+                        let _ = events.send(MonitorEvent::Reprinted(value));
+                        send_log_error(&events, log_error);
+                    }
+                    Err(error) => {
+                        let _ = events.send(MonitorEvent::Error(error));
+                    }
+                },
                 Ok(MonitorCommand::Shutdown) | Err(TryRecvError::Disconnected) => return,
                 Err(TryRecvError::Empty) => break,
             }
@@ -171,6 +220,24 @@ fn monitor_once(
     };
     if config.printer_name.trim().is_empty() {
         let _ = events.send(MonitorEvent::Error("请先选择打印机".to_owned()));
+        return;
+    }
+
+    let current_screen = match platform.virtual_screen() {
+        Ok(screen) => screen,
+        Err(error) => {
+            let _ = events.send(MonitorEvent::Error(error));
+            return;
+        }
+    };
+    let layout_changed = config
+        .selection_screen
+        .is_some_and(|selected_screen| selected_screen != current_screen);
+    if layout_changed || !current_screen.contains(region) {
+        gate.observe(None);
+        let _ = events.send(MonitorEvent::DisplayChanged(
+            "显示器布局、分辨率或缩放已变化，请重新框选区域".to_owned(),
+        ));
         return;
     }
 
@@ -212,7 +279,10 @@ fn monitor_once(
         GateDecision::Ready(value) => match platform.print_ring(&config.printer_name, &value) {
             Ok(()) => {
                 gate.mark_printed(value.clone());
+                let log_error =
+                    log_print_success(&value, &config.printer_name, PrintAction::Automatic);
                 let _ = events.send(MonitorEvent::Printed(value));
+                send_log_error(events, log_error);
             }
             Err(error) => {
                 gate.mark_print_failed();
@@ -230,6 +300,18 @@ fn monitor_once(
         GateDecision::Invalid => {
             let _ = events.send(MonitorEvent::Status("未识别到唯一合法足环号".to_owned()));
         }
+    }
+}
+
+fn log_print_success(value: &str, printer_name: &str, action: PrintAction) -> Option<String> {
+    print_log::append_success(value, printer_name, action)
+        .err()
+        .map(|error| format!("打印成功，但写入本地日志失败：{error}"))
+}
+
+fn send_log_error(events: &Sender<MonitorEvent>, error: Option<String>) {
+    if let Some(error) = error {
+        let _ = events.send(MonitorEvent::Error(error));
     }
 }
 

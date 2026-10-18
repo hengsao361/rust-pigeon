@@ -1,13 +1,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use rust_pigeon::app::PigeonApp;
+use rust_pigeon::app::{MAIN_WINDOW_SIZE, PigeonApp};
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("Rust Pigeon")
-            .with_inner_size([560.0, 520.0])
-            .with_min_inner_size([520.0, 440.0]),
+            .with_inner_size(MAIN_WINDOW_SIZE)
+            .with_resizable(false)
+            .with_maximize_button(false),
+        persist_window: false,
         ..Default::default()
     };
 

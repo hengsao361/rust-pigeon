@@ -30,14 +30,27 @@ impl RingNumber {
 
 pub fn extract_ring_numbers(raw: &str) -> Vec<RingNumber> {
     let normalized = collapse_hyphen_whitespace(&normalize_text(raw));
+    let tokens: Vec<_> = normalized.split_whitespace().collect();
     let mut found = BTreeSet::new();
+    let mut index = 0;
 
-    for token in normalized.split_whitespace() {
-        if let Some(ring) = RingNumber::parse_exact(token) {
-            found.insert(ring.0);
+    while index < tokens.len() {
+        let mut consumed = 0;
+        for width in (1..=3.min(tokens.len() - index)).rev() {
+            let candidate = tokens[index..index + width].join("-");
+            if let Some(ring) = RingNumber::parse_exact(&candidate) {
+                found.insert(ring.0);
+                consumed = width;
+                break;
+            }
+        }
+
+        if consumed > 0 {
+            index += consumed;
             continue;
         }
 
+        let token = tokens[index];
         let parts: Vec<_> = token.split('-').filter(|part| !part.is_empty()).collect();
         for width in [3, 2, 1] {
             if parts.len() < width {
@@ -63,6 +76,7 @@ pub fn extract_ring_numbers(raw: &str) -> Vec<RingNumber> {
                 break;
             }
         }
+        index += 1;
     }
 
     found.into_iter().map(RingNumber).collect()
@@ -179,6 +193,20 @@ mod tests {
     fn extracts_jn_case_insensitively() {
         let values = extract_ring_numbers("Ring: jn - 0347895");
         assert_eq!(values[0].as_str(), "JN-0347895");
+    }
+
+    #[test]
+    fn joins_ring_numbers_split_across_lines() {
+        for (raw, expected) in [
+            ("2025-02\n0348234", "2025-02-0348234"),
+            ("2026\n03-0498274", "2026-03-0498274"),
+            ("2027\nJN\n1234567", "2027-JN-1234567"),
+            ("RING NO.\n04\n7654321", "04-7654321"),
+        ] {
+            let values = extract_ring_numbers(raw);
+            assert_eq!(values.len(), 1, "{raw:?}");
+            assert_eq!(values[0].as_str(), expected);
+        }
     }
 
     #[test]

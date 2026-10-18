@@ -1,5 +1,11 @@
 use serde::{Deserialize, Serialize};
-use std::{fs, io, path::PathBuf};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+};
+
+const APP_DIRECTORY_NAME: &str = "RustPigeon";
+const LEGACY_APP_DIRECTORY_NAME: &str = "Rust Pigeon";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaptureRegion {
@@ -13,13 +19,27 @@ impl CaptureRegion {
     pub fn is_valid(self) -> bool {
         self.width >= 8 && self.height >= 8
     }
+
+    pub fn contains(self, other: Self) -> bool {
+        let self_right = i64::from(self.x) + i64::from(self.width);
+        let self_bottom = i64::from(self.y) + i64::from(self.height);
+        let other_right = i64::from(other.x) + i64::from(other.width);
+        let other_bottom = i64::from(other.y) + i64::from(other.height);
+
+        other.x >= self.x
+            && other.y >= self.y
+            && other_right <= self_right
+            && other_bottom <= self_bottom
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
     pub region: Option<CaptureRegion>,
+    pub selection_screen: Option<CaptureRegion>,
     pub printer_name: String,
+    #[serde(skip)]
     pub tesseract_path: String,
     pub poll_interval_ms: u64,
     pub stable_observations: u8,
@@ -30,6 +50,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             region: None,
+            selection_screen: None,
             printer_name: String::new(),
             tesseract_path: default_tesseract_path(),
             poll_interval_ms: 500,
@@ -51,21 +72,30 @@ fn default_tesseract_path() -> String {
 }
 
 impl AppConfig {
-    pub fn path() -> PathBuf {
+    pub fn data_dir() -> PathBuf {
         if let Some(app_data) = std::env::var_os("APPDATA") {
-            return PathBuf::from(app_data)
-                .join("RustPigeon")
-                .join("config.json");
+            return PathBuf::from(app_data).join(APP_DIRECTORY_NAME);
+        }
+
+        PathBuf::from(".")
+    }
+
+    pub fn path() -> PathBuf {
+        if std::env::var_os("APPDATA").is_some() {
+            return Self::data_dir().join("config.json");
         }
 
         PathBuf::from("rust-pigeon.json")
     }
 
     pub fn load() -> Self {
-        fs::read(Self::path())
+        cleanup_legacy_app_directory();
+        let mut config: Self = fs::read(Self::path())
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        config.tesseract_path = default_tesseract_path();
+        config
     }
 
     pub fn save(&self) -> io::Result<()> {
@@ -75,5 +105,65 @@ impl AppConfig {
         }
         let bytes = serde_json::to_vec_pretty(self).map_err(io::Error::other)?;
         fs::write(path, bytes)
+    }
+}
+
+fn cleanup_legacy_app_directory() {
+    let Some(app_data) = std::env::var_os("APPDATA") else {
+        return;
+    };
+    cleanup_legacy_app_directory_at(&PathBuf::from(app_data));
+}
+
+fn cleanup_legacy_app_directory_at(app_data: &Path) {
+    let legacy = app_data.join(LEGACY_APP_DIRECTORY_NAME);
+    let eframe_data = legacy.join("data");
+    let _ = fs::remove_file(eframe_data.join("app.ron"));
+    let _ = fs::remove_dir(&eframe_data);
+    let _ = fs::remove_dir(&legacy);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn region_containment_handles_negative_virtual_desktop_coordinates() {
+        let screen = CaptureRegion {
+            x: -1920,
+            y: 0,
+            width: 3840,
+            height: 1080,
+        };
+        assert!(screen.contains(CaptureRegion {
+            x: -1200,
+            y: 200,
+            width: 600,
+            height: 300,
+        }));
+        assert!(!screen.contains(CaptureRegion {
+            x: 1800,
+            y: 900,
+            width: 400,
+            height: 300,
+        }));
+    }
+
+    #[test]
+    fn removes_only_known_legacy_eframe_storage() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rust-pigeon-config-{unique}"));
+        let legacy_data = root.join(LEGACY_APP_DIRECTORY_NAME).join("data");
+        fs::create_dir_all(&legacy_data).unwrap();
+        fs::write(legacy_data.join("app.ron"), b"window state").unwrap();
+
+        cleanup_legacy_app_directory_at(&root);
+
+        assert!(!root.join(LEGACY_APP_DIRECTORY_NAME).exists());
+        let _ = fs::remove_dir_all(root);
     }
 }

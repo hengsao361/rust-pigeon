@@ -2,11 +2,14 @@ use crate::{
     config::{AppConfig, CaptureRegion},
     monitor::{MonitorCommand, MonitorEvent, MonitorHandle},
     platform::{CapturedImage, NativePlatform, Platform, spawn_region_hotkey},
+    print_log,
 };
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, Vec2, ViewportCommand, WindowLevel};
 use std::sync::{Arc, mpsc::Receiver};
 
 type SelectionCapture = Result<(CaptureRegion, CapturedImage), String>;
+
+pub const MAIN_WINDOW_SIZE: Vec2 = Vec2::new(620.0, 470.0);
 
 pub struct PigeonApp {
     config: AppConfig,
@@ -26,7 +29,6 @@ struct RegionSelector {
     screen: CaptureRegion,
     screenshot: CapturedImage,
     texture: Option<egui::TextureHandle>,
-    scale: f32,
     start: Option<Pos2>,
     current: Option<Pos2>,
 }
@@ -88,12 +90,11 @@ impl PigeonApp {
     fn show_selector(&mut self, ctx: &egui::Context, result: SelectionCapture) {
         match result {
             Ok((screen, screenshot)) => {
-                let scale = ctx.pixels_per_point().max(1.0);
+                let window_scale = ctx.pixels_per_point().max(1.0);
                 self.selector = Some(RegionSelector {
                     screen,
                     screenshot,
                     texture: None,
-                    scale,
                     start: None,
                     current: None,
                 });
@@ -103,12 +104,12 @@ impl PigeonApp {
                 ctx.send_viewport_cmd(ViewportCommand::WindowLevel(WindowLevel::AlwaysOnTop));
                 ctx.send_viewport_cmd(ViewportCommand::Focus);
                 ctx.send_viewport_cmd(ViewportCommand::OuterPosition(Pos2::new(
-                    screen.x as f32 / scale,
-                    screen.y as f32 / scale,
+                    screen.x as f32 / window_scale,
+                    screen.y as f32 / window_scale,
                 )));
                 ctx.send_viewport_cmd(ViewportCommand::InnerSize(Vec2::new(
-                    screen.width as f32 / scale,
-                    screen.height as f32 / scale,
+                    screen.width as f32 / window_scale,
+                    screen.height as f32 / window_scale,
                 )));
                 self.status = "拖动鼠标框选识别区域，Esc 取消".to_owned();
             }
@@ -123,14 +124,17 @@ impl PigeonApp {
     }
 
     fn finish_selection(&mut self, ctx: &egui::Context, region: Option<CaptureRegion>) {
+        let selection_screen = self.selector.as_ref().map(|selector| selector.screen);
         self.selector = None;
         ctx.send_viewport_cmd(ViewportCommand::Decorations(true));
         ctx.send_viewport_cmd(ViewportCommand::WindowLevel(WindowLevel::Normal));
-        ctx.send_viewport_cmd(ViewportCommand::InnerSize(Vec2::new(560.0, 520.0)));
+        ctx.send_viewport_cmd(ViewportCommand::Resizable(false));
+        ctx.send_viewport_cmd(ViewportCommand::InnerSize(MAIN_WINDOW_SIZE));
         ctx.send_viewport_cmd(ViewportCommand::OuterPosition(Pos2::new(100.0, 100.0)));
 
         if let Some(region) = region.filter(|value| value.is_valid()) {
             self.config.region = Some(region);
+            self.config.selection_screen = selection_screen;
             self.status = format!(
                 "已设定区域：({}, {}) {}×{}",
                 region.x, region.y, region.width, region.height
@@ -182,6 +186,14 @@ impl PigeonApp {
                     self.config.last_printed = Some(value.clone());
                     let _ = self.config.save();
                     self.status = format!("已打印：{value}");
+                }
+                MonitorEvent::Reprinted(value) => {
+                    self.status = format!("已再次打印：{value}");
+                }
+                MonitorEvent::DisplayChanged(message) => {
+                    self.active = false;
+                    let _ = self.monitor.commands.send(MonitorCommand::SetActive(false));
+                    self.status = message;
                 }
                 MonitorEvent::Error(error) => self.status = format!("错误：{error}"),
             }
@@ -237,11 +249,13 @@ impl PigeonApp {
 
             if response.drag_stopped() {
                 let local = selected.translate(-rect.min.to_vec2());
+                let scale_x = selector.screen.width as f32 / rect.width().max(1.0);
+                let scale_y = selector.screen.height as f32 / rect.height().max(1.0);
                 completed = Some(CaptureRegion {
-                    x: selector.screen.x + (local.min.x * selector.scale).round() as i32,
-                    y: selector.screen.y + (local.min.y * selector.scale).round() as i32,
-                    width: (local.width() * selector.scale).round().max(0.0) as u32,
-                    height: (local.height() * selector.scale).round().max(0.0) as u32,
+                    x: selector.screen.x + (local.min.x * scale_x).round() as i32,
+                    y: selector.screen.y + (local.min.y * scale_y).round() as i32,
+                    width: (local.width() * scale_x).round().max(0.0) as u32,
+                    height: (local.height() * scale_y).round().max(0.0) as u32,
                 });
             }
         }
@@ -321,17 +335,6 @@ impl PigeonApp {
                 }
             });
 
-            ui.horizontal(|ui| {
-                ui.label("Tesseract");
-                let changed = ui
-                    .text_edit_singleline(&mut self.config.tesseract_path)
-                    .on_hover_text("tesseract.exe 的完整路径，或 PATH 中的命令名")
-                    .changed();
-                if changed {
-                    self.apply_config();
-                }
-            });
-
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 if ui
@@ -354,6 +357,28 @@ impl PigeonApp {
                         let _ = self.monitor.commands.send(MonitorCommand::TestPrint {
                             printer_name: self.config.printer_name.clone(),
                         });
+                    }
+                }
+            });
+
+            ui.horizontal(|ui| {
+                let last_printed = self.config.last_printed.clone();
+                let can_reprint =
+                    last_printed.is_some() && !self.config.printer_name.trim().is_empty();
+                if ui
+                    .add_enabled(can_reprint, egui::Button::new("再次打印"))
+                    .clicked()
+                    && let Some(value) = last_printed
+                {
+                    let _ = self.monitor.commands.send(MonitorCommand::Reprint {
+                        printer_name: self.config.printer_name.clone(),
+                        value,
+                    });
+                }
+                if ui.button("打开日志目录").clicked() {
+                    match print_log::open_directory() {
+                        Ok(()) => self.status = "已打开日志目录".to_owned(),
+                        Err(error) => self.status = error,
                     }
                 }
             });
@@ -444,6 +469,11 @@ impl eframe::App for PigeonApp {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        let _ = self.monitor.commands.send(MonitorCommand::Shutdown);
+        self.monitor.shutdown();
+        let _ = print_log::upload_on_exit();
+    }
+
+    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+        visuals.panel_fill.to_normalized_gamma_f32()
     }
 }

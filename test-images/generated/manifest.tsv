@@ -1,0 +1,101 @@
+file_name	expected_number	shape	font	font_size	prefix	palette	alignment
+001_2020-JN-1073421_Arial_20pt.png	2020-JN-1073421	three-part	Arial	20	none	white	left
+002_2021-08-1146842_Verdana_Bold_28pt.png	2021-08-1146842	three-part	Verdana Bold	28	ID:	warm-white	center
+003_2022-15-1220263_Courier_New_36pt.png	2022-15-1220263	three-part	Courier New	36	none	dark	right
+004_2023-22-1293684_Helvetica_Neue_23pt.png	2023-22-1293684	three-part	Helvetica Neue	23	none	light-gray	left
+005_29-1367105_Georgia_31pt.png	29-1367105	two-part	Georgia	31	BAND	pale-blue	center
+006_03-1440526_Arial_Bold_39pt.png	03-1440526	two-part	Arial Bold	39	RING NO.	white	right
+007_10-1513947_Times_New_Roman_26pt.png	10-1513947	two-part	Times New Roman	26	none	warm-white	left
+008_1587368_Courier_New_Bold_34pt.png	1587368	one-part	Courier New Bold	34	none	dark	center
+009_1660789_Verdana_21pt.png	1660789	one-part	Verdana	21	ID:	light-gray	right
+010_1734210_Georgia_Bold_29pt.png	1734210	one-part	Georgia Bold	29	none	pale-blue	left
+011_2030-05-1807631_Arial_Narrow_Bold_37pt.png	2030-05-1807631	three-part	Arial Narrow Bold	37	none	white	center
+012_2031-12-1881052_Times_New_Roman_Bold_24pt.png	2031-12-1881052	three-part	Times New Roman Bold	24	BAND	warm-white	right
+013_2032-19-1954473_Arial_32pt.png	2032-19-1954473	three-part	Arial	32	RING NO.	dark	left
+014_2033-26-2027894_Verdana_Bold_40pt.png	2033-26-2027894	three-part	Verdana Bold	40	none	light-gray	center
+015_33-2101315_Courier_New_27pt.png	33-2101315	two-part	Courier New	27	none	pale-blue	right
+016_07-2174736_Helvetica_Neue_35pt.png	07-2174736	two-part	Helvetica Neue	35	ID:	white	left
+017_14-2248157_Georgia_22pt.png	14-2248157	two-part	Georgia	22	none	warm-white	center
+018_2321578_Arial_Bold_30pt.png	2321578	one-part	Arial Bold	30	none	dark	right
+019_2394999_Times_New_Roman_38pt.png	2394999	one-part	Times New Roman	38	BAND	light-gray	left
+020_2468420_Courier_New_Bold_25pt.png	2468420	one-part	Courier New Bold	25	RING NO.	pale-blue	center
+021_2024-09-2541841_Verdana_33pt.png	2024-09-2541841	three-part	Verdana	33	none	white	right
+022_2025-16-2615262_Georgia_Bold_20pt.png	2025-16-2615262	three-part	Georgia Bold	20	none	warm-white	left
+023_2026-23-2688683_Arial_Narrow_28pt.png	2026-23-2688683	three-part	Arial Narrow	28	ID:	dark	center
+024_2027-30-2762104_Times_New_Roman_Bold_36pt.png	2027-30-2762104	three-part	Times New Roman Bold	36	none	light-gray	right
+025_04-2835525_Arial_23pt.png	04-2835525	two-part	Arial	23	none	pale-blue	left
+026_11-2908946_Verdana_Bold_31pt.png	11-2908946	two-part	Verdana Bold	31	BAND	white	center
+027_18-2982367_Courier_New_39pt.png	18-2982367	two-part	Courier New	39	RING NO.	warm-white	right
+028_3055788_Helvetica_Neue_26pt.png	3055788	one-part	Helvetica Neue	26	none	dark	left
+029_3129209_Georgia_34pt.png	3129209	one-part	Georgia	34	none	light-gray	center
+030_3202630_Arial_Bold_21pt.png	3202630	one-part	Arial Bold	21	ID:	pale-blue	right
+031_2034-13-3276051_Times_New_Roman_29pt.png	2034-13-3276051	three-part	Times New Roman	29	none	white	left
+032_2035-20-3349472_Courier_New_Bold_37pt.png	2035-20-3349472	three-part	Courier New Bold	37	none	warm-white	center
+033_2020-27-3422893_Verdana_24pt.png	2020-27-3422893	three-part	Verdana	24	BAND	dark	right
+034_2021-01-3496314_Georgia_Bold_32pt.png	2021-01-3496314	three-part	Georgia Bold	32	RING NO.	light-gray	left
+035_JN-3569735_Arial_Narrow_Bold_40pt.png	JN-3569735	two-part	Arial Narrow Bold	40	none	pale-blue	center
+036_15-3643156_Times_New_Roman_Bold_27pt.png	15-3643156	two-part	Times New Roman Bold	27	none	white	right
+037_22-3716577_Arial_35pt.png	22-3716577	two-part	Arial	35	ID:	warm-white	left
+038_3789998_Verdana_Bold_22pt.png	3789998	one-part	Verdana Bold	22	none	dark	center
+039_3863419_Courier_New_30pt.png	3863419	one-part	Courier New	30	none	light-gray	right
+040_3936840_Helvetica_Neue_38pt.png	3936840	one-part	Helvetica Neue	38	BAND	pale-blue	left
+041_2028-17-4010261_Georgia_25pt.png	2028-17-4010261	three-part	Georgia	25	RING NO.	white	center
+042_2029-24-4083682_Arial_Bold_33pt.png	2029-24-4083682	three-part	Arial Bold	33	none	warm-white	right
+043_2030-31-4157103_Times_New_Roman_20pt.png	2030-31-4157103	three-part	Times New Roman	20	none	dark	left
+044_2031-05-4230524_Courier_New_Bold_28pt.png	2031-05-4230524	three-part	Courier New Bold	28	ID:	light-gray	center
+045_12-4303945_Verdana_36pt.png	12-4303945	two-part	Verdana	36	none	pale-blue	right
+046_19-4377366_Georgia_Bold_23pt.png	19-4377366	two-part	Georgia Bold	23	none	white	left
+047_26-4450787_Arial_Narrow_31pt.png	26-4450787	two-part	Arial Narrow	31	BAND	warm-white	center
+048_4524208_Times_New_Roman_Bold_39pt.png	4524208	one-part	Times New Roman Bold	39	RING NO.	dark	right
+049_4597629_Arial_26pt.png	4597629	one-part	Arial	26	none	light-gray	left
+050_4671050_Verdana_Bold_34pt.png	4671050	one-part	Verdana Bold	34	none	pale-blue	center
+051_2022-21-4744471_Courier_New_21pt.png	2022-21-4744471	three-part	Courier New	21	ID:	white	right
+052_2023-JN-4817892_Helvetica_Neue_29pt.png	2023-JN-4817892	three-part	Helvetica Neue	29	none	warm-white	left
+053_2024-02-4891313_Georgia_37pt.png	2024-02-4891313	three-part	Georgia	37	none	dark	center
+054_2025-09-4964734_Arial_Bold_24pt.png	2025-09-4964734	three-part	Arial Bold	24	BAND	light-gray	right
+055_16-5038155_Times_New_Roman_32pt.png	16-5038155	two-part	Times New Roman	32	RING NO.	pale-blue	left
+056_23-5111576_Courier_New_Bold_40pt.png	23-5111576	two-part	Courier New Bold	40	none	white	center
+057_30-5184997_Verdana_27pt.png	30-5184997	two-part	Verdana	27	none	warm-white	right
+058_5258418_Georgia_Bold_35pt.png	5258418	one-part	Georgia Bold	35	ID:	dark	left
+059_5331839_Arial_Narrow_22pt.png	5331839	one-part	Arial Narrow	22	none	light-gray	center
+060_5405260_Times_New_Roman_Bold_30pt.png	5405260	one-part	Times New Roman Bold	30	none	pale-blue	right
+061_2032-25-5478681_Arial_Bold_38pt.png	2032-25-5478681	three-part	Arial Bold	38	BAND	white	left
+062_2033-32-5552102_Verdana_Bold_25pt.png	2033-32-5552102	three-part	Verdana Bold	25	RING NO.	warm-white	center
+063_2034-06-5625523_Courier_New_33pt.png	2034-06-5625523	three-part	Courier New	33	none	dark	right
+064_2035-13-5698944_Helvetica_Neue_20pt.png	2035-13-5698944	three-part	Helvetica Neue	20	none	light-gray	left
+065_20-5772365_Georgia_28pt.png	20-5772365	two-part	Georgia	28	ID:	pale-blue	center
+066_27-5845786_Arial_Bold_36pt.png	27-5845786	two-part	Arial Bold	36	none	white	right
+067_01-5919207_Times_New_Roman_23pt.png	01-5919207	two-part	Times New Roman	23	none	warm-white	left
+068_5992628_Courier_New_Bold_31pt.png	5992628	one-part	Courier New Bold	31	BAND	dark	center
+069_6066049_Verdana_39pt.png	6066049	one-part	Verdana	39	RING NO.	light-gray	right
+070_6139470_Georgia_Bold_26pt.png	6139470	one-part	Georgia Bold	26	none	pale-blue	left
+071_2026-29-6212891_Arial_Narrow_Bold_34pt.png	2026-29-6212891	three-part	Arial Narrow Bold	34	none	white	center
+072_2027-03-6286312_Times_New_Roman_Bold_21pt.png	2027-03-6286312	three-part	Times New Roman Bold	21	ID:	warm-white	right
+073_2028-10-6359733_Arial_29pt.png	2028-10-6359733	three-part	Arial	29	none	dark	left
+074_2029-17-6433154_Verdana_Bold_37pt.png	2029-17-6433154	three-part	Verdana Bold	37	none	light-gray	center
+075_24-6506575_Courier_New_24pt.png	24-6506575	two-part	Courier New	24	BAND	pale-blue	right
+076_31-6579996_Helvetica_Neue_32pt.png	31-6579996	two-part	Helvetica Neue	32	RING NO.	white	left
+077_05-6653417_Georgia_40pt.png	05-6653417	two-part	Georgia	40	none	warm-white	center
+078_6726838_Arial_Bold_27pt.png	6726838	one-part	Arial Bold	27	none	dark	right
+079_6800259_Times_New_Roman_35pt.png	6800259	one-part	Times New Roman	35	ID:	light-gray	left
+080_6873680_Courier_New_Bold_22pt.png	6873680	one-part	Courier New Bold	22	none	pale-blue	center
+081_2020-33-6947101_Verdana_30pt.png	2020-33-6947101	three-part	Verdana	30	none	white	right
+082_2021-07-7020522_Georgia_Bold_38pt.png	2021-07-7020522	three-part	Georgia Bold	38	BAND	warm-white	left
+083_2022-14-7093943_Arial_Narrow_25pt.png	2022-14-7093943	three-part	Arial Narrow	25	RING NO.	dark	center
+084_2023-21-7167364_Times_New_Roman_Bold_33pt.png	2023-21-7167364	three-part	Times New Roman Bold	33	none	light-gray	right
+085_28-7240785_Arial_20pt.png	28-7240785	two-part	Arial	20	none	pale-blue	left
+086_JN-7314206_Verdana_Bold_28pt.png	JN-7314206	two-part	Verdana Bold	28	ID:	white	center
+087_09-7387627_Courier_New_36pt.png	09-7387627	two-part	Courier New	36	none	warm-white	right
+088_7461048_Helvetica_Neue_23pt.png	7461048	one-part	Helvetica Neue	23	none	dark	left
+089_7534469_Georgia_31pt.png	7534469	one-part	Georgia	31	BAND	light-gray	center
+090_7607890_Arial_Bold_39pt.png	7607890	one-part	Arial Bold	39	RING NO.	pale-blue	right
+091_2030-04-7681311_Times_New_Roman_26pt.png	2030-04-7681311	three-part	Times New Roman	26	none	white	left
+092_2031-11-7754732_Courier_New_Bold_34pt.png	2031-11-7754732	three-part	Courier New Bold	34	none	warm-white	center
+093_2032-18-7828153_Verdana_21pt.png	2032-18-7828153	three-part	Verdana	21	ID:	dark	right
+094_2033-25-7901574_Georgia_Bold_29pt.png	2033-25-7901574	three-part	Georgia Bold	29	none	light-gray	left
+095_32-7974995_Arial_Narrow_Bold_37pt.png	32-7974995	two-part	Arial Narrow Bold	37	none	pale-blue	center
+096_06-8048416_Times_New_Roman_Bold_24pt.png	06-8048416	two-part	Times New Roman Bold	24	BAND	white	right
+097_13-8121837_Arial_32pt.png	13-8121837	two-part	Arial	32	RING NO.	warm-white	left
+098_8195258_Verdana_Bold_40pt.png	8195258	one-part	Verdana Bold	40	none	dark	center
+099_8268679_Courier_New_27pt.png	8268679	one-part	Courier New	27	none	light-gray	right
+100_8342100_Helvetica_Neue_35pt.png	8342100	one-part	Helvetica Neue	35	ID:	pale-blue	left
