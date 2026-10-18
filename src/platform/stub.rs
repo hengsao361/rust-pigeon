@@ -1,5 +1,5 @@
 use super::{CapturedImage, Platform};
-use crate::config::CaptureRegion;
+use crate::{config::CaptureRegion, receipt::PrintTicket};
 use std::sync::mpsc::{self, Receiver};
 
 #[derive(Debug, Default)]
@@ -14,7 +14,7 @@ impl Platform for NativePlatform {
         Ok(Vec::new())
     }
 
-    fn print_ring(&self, _printer_name: &str, _value: &str) -> Result<(), String> {
+    fn print_ring(&self, _printer_name: &str, _ticket: &PrintTicket) -> Result<(), String> {
         Err("RAW 热敏打印仅支持 Windows".to_owned())
     }
 

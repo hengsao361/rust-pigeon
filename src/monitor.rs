@@ -3,6 +3,7 @@ use crate::{
     ocr::{OcrEngine, TesseractCli},
     platform::Platform,
     print_log::{self, PrintAction},
+    receipt::PrintTicket,
     ring::extract_ring_numbers,
 };
 use std::{
@@ -110,10 +111,11 @@ fn run_monitor(
                 let _ = events.send(MonitorEvent::Status(text.to_owned()));
             }
             Ok(MonitorCommand::TestPrint { printer_name }) => {
-                match platform.print_ring(&printer_name, "2026-10-0178948") {
+                let value = "2026-10-0178948";
+                let ticket = print_ticket(&config, value);
+                match platform.print_ring(&printer_name, &ticket) {
                     Ok(()) => {
-                        let log_error =
-                            log_print_success("2026-10-0178948", &printer_name, PrintAction::Test);
+                        let log_error = log_print_success(value, &printer_name, PrintAction::Test);
                         let _ = events.send(MonitorEvent::Status("测试打印已发送".to_owned()));
                         send_log_error(&events, log_error);
                     }
@@ -125,7 +127,7 @@ fn run_monitor(
             Ok(MonitorCommand::Reprint {
                 printer_name,
                 value,
-            }) => match platform.print_ring(&printer_name, &value) {
+            }) => match platform.print_ring(&printer_name, &print_ticket(&config, &value)) {
                 Ok(()) => {
                     let log_error = log_print_success(&value, &printer_name, PrintAction::Reprint);
                     let _ = events.send(MonitorEvent::Reprinted(value));
@@ -168,13 +170,12 @@ fn run_monitor(
                 }
                 Ok(MonitorCommand::SetActive(value)) => active = value,
                 Ok(MonitorCommand::TestPrint { printer_name }) => {
-                    match platform.print_ring(&printer_name, "2026-10-0178948") {
+                    let value = "2026-10-0178948";
+                    let ticket = print_ticket(&config, value);
+                    match platform.print_ring(&printer_name, &ticket) {
                         Ok(()) => {
-                            let log_error = log_print_success(
-                                "2026-10-0178948",
-                                &printer_name,
-                                PrintAction::Test,
-                            );
+                            let log_error =
+                                log_print_success(value, &printer_name, PrintAction::Test);
                             let _ = events.send(MonitorEvent::Status("测试打印已发送".to_owned()));
                             send_log_error(&events, log_error);
                         }
@@ -186,7 +187,7 @@ fn run_monitor(
                 Ok(MonitorCommand::Reprint {
                     printer_name,
                     value,
-                }) => match platform.print_ring(&printer_name, &value) {
+                }) => match platform.print_ring(&printer_name, &print_ticket(&config, &value)) {
                     Ok(()) => {
                         let log_error =
                             log_print_success(&value, &printer_name, PrintAction::Reprint);
@@ -276,19 +277,21 @@ fn monitor_once(
     }
 
     match gate.observe(last_candidate.as_deref()) {
-        GateDecision::Ready(value) => match platform.print_ring(&config.printer_name, &value) {
-            Ok(()) => {
-                gate.mark_printed(value.clone());
-                let log_error =
-                    log_print_success(&value, &config.printer_name, PrintAction::Automatic);
-                let _ = events.send(MonitorEvent::Printed(value));
-                send_log_error(events, log_error);
+        GateDecision::Ready(value) => {
+            match platform.print_ring(&config.printer_name, &print_ticket(config, &value)) {
+                Ok(()) => {
+                    gate.mark_printed(value.clone());
+                    let log_error =
+                        log_print_success(&value, &config.printer_name, PrintAction::Automatic);
+                    let _ = events.send(MonitorEvent::Printed(value));
+                    send_log_error(events, log_error);
+                }
+                Err(error) => {
+                    gate.mark_print_failed();
+                    let _ = events.send(MonitorEvent::Error(error));
+                }
             }
-            Err(error) => {
-                gate.mark_print_failed();
-                let _ = events.send(MonitorEvent::Error(error));
-            }
-        },
+        }
         GateDecision::Waiting { seen, required } => {
             let _ = events.send(MonitorEvent::Status(format!(
                 "结果稳定中 {seen}/{required}"
@@ -301,6 +304,10 @@ fn monitor_once(
             let _ = events.send(MonitorEvent::Status("未识别到唯一合法足环号".to_owned()));
         }
     }
+}
+
+fn print_ticket(config: &AppConfig, value: &str) -> PrintTicket {
+    PrintTicket::new(value, &config.business_content, &config.channel)
 }
 
 fn log_print_success(value: &str, printer_name: &str, action: PrintAction) -> Option<String> {

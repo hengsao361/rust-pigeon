@@ -1,9 +1,17 @@
-use super::{CapturedImage, Platform, escpos_ring_receipt};
-use crate::config::CaptureRegion;
+use super::{CapturedImage, Platform};
+use crate::{
+    config::CaptureRegion,
+    receipt::{PrintTicket, ReceiptFonts, ReceiptTimestamp, escpos_raster_receipt, render_receipt},
+};
+use fontdue::{Font, FontSettings};
 use std::{
     ffi::c_void,
+    fs,
     mem::size_of,
-    sync::mpsc::{self, Receiver},
+    sync::{
+        OnceLock,
+        mpsc::{self, Receiver},
+    },
     thread,
 };
 use windows::{
@@ -21,6 +29,7 @@ use windows::{
                 StartDocPrinterW, StartPagePrinter, WritePrinter,
             },
         },
+        System::SystemInformation::GetLocalTime,
         UI::{
             Input::KeyboardAndMouse::{
                 MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, RegisterHotKey, UnregisterHotKey,
@@ -203,11 +212,14 @@ impl Platform for NativePlatform {
         }
     }
 
-    fn print_ring(&self, printer_name: &str, value: &str) -> Result<(), String> {
+    fn print_ring(&self, printer_name: &str, ticket: &PrintTicket) -> Result<(), String> {
         let printer = wide(printer_name);
         let document_name = wide("Rust Pigeon Ring");
         let datatype = wide("RAW");
-        let bytes = escpos_ring_receipt(value);
+        let fonts = receipt_fonts()?;
+        let timestamp = local_timestamp();
+        let bitmap = render_receipt(ticket, &timestamp, fonts)?;
+        let bytes = escpos_raster_receipt(&bitmap);
 
         unsafe {
             let mut handle = PRINTER_HANDLE::default();
@@ -268,6 +280,78 @@ impl Platform for NativePlatform {
                 height: height as u32,
             })
         }
+    }
+}
+
+fn receipt_fonts() -> Result<&'static ReceiptFonts, String> {
+    static FONTS: OnceLock<Result<ReceiptFonts, String>> = OnceLock::new();
+    FONTS
+        .get_or_init(|| {
+            Ok(ReceiptFonts {
+                regular: load_font(
+                    &[
+                        r"C:\Windows\Fonts\msyh.ttc",
+                        r"C:\Windows\Fonts\msyh.ttf",
+                        r"C:\Windows\Fonts\simhei.ttf",
+                        r"C:\Windows\Fonts\simsun.ttc",
+                    ],
+                    Some('鸽'),
+                )?,
+                bold: load_font(
+                    &[
+                        r"C:\Windows\Fonts\msyhbd.ttc",
+                        r"C:\Windows\Fonts\msyhbd.ttf",
+                        r"C:\Windows\Fonts\simhei.ttf",
+                        r"C:\Windows\Fonts\msyh.ttc",
+                    ],
+                    Some('鸽'),
+                )?,
+                digits: load_font(
+                    &[
+                        r"C:\Windows\Fonts\arialbd.ttf",
+                        r"C:\Windows\Fonts\consolab.ttf",
+                        r"C:\Windows\Fonts\msyhbd.ttc",
+                    ],
+                    None,
+                )?,
+            })
+        })
+        .as_ref()
+        .map_err(Clone::clone)
+}
+
+fn load_font(candidates: &[&str], required_character: Option<char>) -> Result<Font, String> {
+    for path in candidates {
+        let Ok(bytes) = fs::read(path) else {
+            continue;
+        };
+        for collection_index in 0..8 {
+            let settings = FontSettings {
+                collection_index,
+                ..Default::default()
+            };
+            let Ok(font) = Font::from_bytes(bytes.as_slice(), settings) else {
+                continue;
+            };
+            if required_character.is_none_or(|character| font.lookup_glyph_index(character) != 0) {
+                return Ok(font);
+            }
+        }
+    }
+    Err("找不到可用于票据排版的 Windows 字体（微软雅黑/黑体/Arial）".to_owned())
+}
+
+fn local_timestamp() -> ReceiptTimestamp {
+    let time = unsafe { GetLocalTime() };
+    ReceiptTimestamp {
+        compact: format!(
+            "{:04}{:02}{:02}{:02}{:02}{:02}",
+            time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond
+        ),
+        display: format!(
+            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+            time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond
+        ),
     }
 }
 

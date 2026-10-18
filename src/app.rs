@@ -3,13 +3,20 @@ use crate::{
     monitor::{MonitorCommand, MonitorEvent, MonitorHandle},
     platform::{CapturedImage, NativePlatform, Platform, spawn_region_hotkey},
     print_log,
+    receipt::sanitize_channel_input,
 };
-use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, Vec2, ViewportCommand, WindowLevel};
+use eframe::egui::{
+    self, Align, Color32, Pos2, Rect, Sense, Stroke, Vec2, ViewportCommand, WindowLevel,
+};
 use std::sync::{Arc, mpsc::Receiver};
 
 type SelectionCapture = Result<(CaptureRegion, CapturedImage), String>;
 
-pub const MAIN_WINDOW_SIZE: Vec2 = Vec2::new(620.0, 470.0);
+pub const MAIN_WINDOW_SIZE: Vec2 = Vec2::new(620.0, 540.0);
+pub const APP_VERSION: &str = match option_env!("RUST_PIGEON_BUILD_VERSION") {
+    Some(version) => version,
+    None => env!("CARGO_PKG_VERSION"),
+};
 
 pub struct PigeonApp {
     config: AppConfig,
@@ -276,7 +283,12 @@ impl PigeonApp {
     fn settings_ui(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         egui::Frame::central_panel(ui.style()).show(ui, |ui| {
-            ui.heading("信鸽足环自动识别打印");
+            ui.horizontal(|ui| {
+                ui.heading("信鸽足环自动识别打印");
+                ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+                    ui.weak(format!("v{APP_VERSION}"));
+                });
+            });
             ui.add_space(8.0);
 
             ui.horizontal(|ui| {
@@ -332,6 +344,35 @@ impl PigeonApp {
                         Ok(printers) => self.printers = printers,
                         Err(error) => self.status = error,
                     }
+                }
+            });
+
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                ui.label("二维码通道");
+                let channel_response = ui
+                    .add(egui::TextEdit::singleline(&mut self.config.channel).desired_width(50.0));
+                ui.weak(format!(
+                    "二维码中显示为 {}",
+                    crate::receipt::format_channel(&self.config.channel)
+                ));
+                if channel_response.changed() {
+                    self.config.channel = sanitize_channel_input(&self.config.channel);
+                    self.apply_config();
+                }
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("业务内容");
+                let response = ui.add(
+                    egui::TextEdit::singleline(&mut self.config.business_content)
+                        .desired_width(260.0)
+                        .hint_text("请输入票据顶部内容"),
+                );
+                if response.changed() {
+                    self.config.business_content =
+                        self.config.business_content.chars().take(16).collect();
+                    self.apply_config();
                 }
             });
 

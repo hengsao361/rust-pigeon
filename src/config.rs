@@ -1,3 +1,4 @@
+use crate::receipt::{random_business_content, sanitize_channel_input};
 use serde::{Deserialize, Serialize};
 use std::{
     fs, io,
@@ -44,6 +45,9 @@ pub struct AppConfig {
     pub poll_interval_ms: u64,
     pub stable_observations: u8,
     pub last_printed: Option<String>,
+    pub channel: String,
+    #[serde(skip, default = "random_business_content")]
+    pub business_content: String,
 }
 
 impl Default for AppConfig {
@@ -56,6 +60,8 @@ impl Default for AppConfig {
             poll_interval_ms: 500,
             stable_observations: 3,
             last_printed: None,
+            channel: "0".to_owned(),
+            business_content: random_business_content(),
         }
     }
 }
@@ -95,6 +101,8 @@ impl AppConfig {
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default();
         config.tesseract_path = default_tesseract_path();
+        config.channel = sanitize_channel_input(&config.channel);
+        config.business_content = random_business_content();
         config
     }
 

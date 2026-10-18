@@ -2,6 +2,12 @@ name: Windows build
 
 on:
   workflow_dispatch:
+    inputs:
+      include_tesseract:
+        description: Include Tesseract OCR in the portable ZIP
+        required: false
+        default: false
+        type: boolean
   push:
     branches:
       - main
@@ -41,7 +47,16 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --locked --all-targets -- -D warnings
 
+      - name: Set build version
+        shell: pwsh
+        run: |
+          $metadata = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
+          $baseVersion = ($metadata.packages | Where-Object { $_.name -eq "rust-pigeon" } | Select-Object -First 1).version
+          $fileVersion = "$baseVersion-build.${{ github.run_number }}"
+          "FILE_VERSION=$fileVersion" | Out-File -FilePath $env:GITHUB_ENV -Append
+
       - name: Install Tesseract OCR
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.include_tesseract }}
         shell: pwsh
         run: |
           choco install tesseract --yes --no-progress
@@ -60,23 +75,38 @@ jobs:
           & $tesseractExe --version
           "TESSERACT_DIR=$tesseractDir" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: Build portable ZIP
+      - name: Build Windows package
         shell: pwsh
         run: |
-          .\scripts\package-windows.ps1 -TesseractDir $env:TESSERACT_DIR
+          if ("${{ github.event_name == 'workflow_dispatch' && inputs.include_tesseract }}" -eq "true") {
+            .\scripts\package-windows.ps1 -BuildNumber "${{ github.run_number }}" -IncludeTesseract -TesseractDir $env:TESSERACT_DIR
+            "PACKAGE_PATH=dist\rust-pigeon-windows-x64-v$env:FILE_VERSION.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+            "PACKAGE_NAME=rust-pigeon-windows-x64-v$env:FILE_VERSION" | Out-File -FilePath $env:GITHUB_ENV -Append
+          } else {
+            .\scripts\package-windows.ps1 -BuildNumber "${{ github.run_number }}"
+            "PACKAGE_PATH=dist\rust-pigeon-v$env:FILE_VERSION.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
+            "PACKAGE_NAME=rust-pigeon-v$env:FILE_VERSION" | Out-File -FilePath $env:GITHUB_ENV -Append
+          }
 
       - name: Verify package contents
         shell: pwsh
         run: |
-          $archive = "dist\rust-pigeon-windows-x64.zip"
-          $verifyDir = Join-Path $env:RUNNER_TEMP "rust-pigeon-package"
-          Expand-Archive -Path $archive -DestinationPath $verifyDir -Force
+          $includeTesseract = "${{ github.event_name == 'workflow_dispatch' && inputs.include_tesseract }}" -eq "true"
 
-          $requiredFiles = @(
-            (Join-Path $verifyDir "rust-pigeon.exe"),
-            (Join-Path $verifyDir "tesseract\tesseract.exe"),
-            (Join-Path $verifyDir "tesseract\tessdata\eng.traineddata")
-          )
+          if ($includeTesseract) {
+            $verifyDir = Join-Path $env:RUNNER_TEMP "rust-pigeon-package"
+            Expand-Archive -Path $env:PACKAGE_PATH -DestinationPath $verifyDir -Force
+            $requiredFiles = @(
+              (Join-Path $verifyDir "rust-pigeon-v$env:FILE_VERSION.exe"),
+              (Join-Path $verifyDir "tesseract\tesseract.exe"),
+              (Join-Path $verifyDir "tesseract\tessdata\eng.traineddata")
+            )
+          } else {
+            $requiredFiles = @($env:PACKAGE_PATH)
+            if (Get-ChildItem "dist" -Filter "*.zip") {
+              throw "Default build must not produce a ZIP archive"
+            }
+          }
 
           foreach ($file in $requiredFiles) {
             if (-not (Test-Path $file)) {
@@ -84,13 +114,13 @@ jobs:
             }
           }
 
-          Get-Item $archive | Format-List FullName, Length
+          Get-Item $env:PACKAGE_PATH | Format-List FullName, Length
 
-      - name: Upload Windows ZIP
+      - name: Upload Windows package
         uses: actions/upload-artifact@v4
         with:
-          name: rust-pigeon-windows-x64
-          path: dist/rust-pigeon-windows-x64.zip
+          name: ${{ env.PACKAGE_NAME }}
+          path: ${{ env.PACKAGE_PATH }}
           if-no-files-found: error
           compression-level: 0
           retention-days: 14

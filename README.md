@@ -11,6 +11,8 @@ Windows 屏幕区域足环号 OCR 监控与佳博 GP-801CE 静默打印客户端
 5. 打印后自动走纸并执行部分切纸；相同内容不会重复打印。
 6. 每次自动打印、再次打印和测试打印成功后，写入本地 JSONL 日志。
 
+打印内容使用 576 点宽黑白票据位图，包含二维码、足环号、业务内容、“羽成达”和本地时间；底部分割线中间只显示补齐后的当前通道，例如 `05`。票据不依赖热敏打印机内置中文字库。
+
 程序不实现开机自启，不访问系统默认打印机。关闭程序即停止监控；最小化窗口不会停止监控。
 
 ## 足环号规则
@@ -37,7 +39,7 @@ Windows 屏幕区域足环号 OCR 监控与佳博 GP-801CE 静默打印客户端
 
 - Windows 10/11 x64。
 - 佳博 GP-801CE 已安装官方驱动，并能在“打印机和扫描仪”中正常测试打印。
-- Tesseract 5 英文模型。发布包将其固定放在程序旁的 `tesseract` 子目录，不需要配置 PATH，主界面也不显示其内部路径。
+- Tesseract 5 英文模型。完整版发布包将其固定放在程序旁的 `tesseract` 子目录，不需要配置 PATH，主界面也不显示其内部路径；默认精简包不包含 Tesseract。
 
 所有应用数据统一保存在 `%APPDATA%\RustPigeon`：
 
@@ -46,6 +48,18 @@ Windows 屏幕区域足环号 OCR 监控与佳博 GP-801CE 静默打印客户端
 - 上传状态：`%APPDATA%\RustPigeon\logs\upload-status.log`
 
 旧版本由 eframe 创建的 `%APPDATA%\Rust Pigeon` 窗口状态目录会在启动时安全清理。最后一次成功打印的编号会持久化，因此重启程序不会立即重复打印静止画面中的旧编号。主界面的“再次打印”按钮可以手动重打最近一次成功识别的号码，“打开日志目录”按钮会直接打开上述日志文件夹。
+
+## 二维码票据
+
+主页面可以设置二维码通道和票据顶部的业务内容。通道只接受最多两位数字，默认输入 `0`，写入二维码时补齐为 `00`；例如输入 `5` 会写为 `05`。业务内容每次启动时从“勇夺桂冠、所向披靡、载誉归来、决胜千里、羽翼生风、王者归来”中随机选择一次，本次运行期间保持不变，也可以手动修改。
+
+二维码当前编码格式为：
+
+```text
+ycd://足环号&ts=yyyyMMddHHmmss&ch=两位通道&crc=两位大写十六进制校验值
+```
+
+其中时间取实际打印时的 Windows 本地时间。“内容”是识别到的完整足环号。CRC 使用 CRC-8/SMBUS 参数：多项式 `0x07`、初始值 `0x00`、输入和输出均不反射、输出异或值 `0x00`；校验范围为 `&crc=` 之前的完整 UTF-8 字节，结果格式化为两位大写十六进制。
 
 ## 显示器与分辨率变化
 
@@ -80,16 +94,28 @@ cargo clippy --all-targets -- -D warnings
 cargo run
 ```
 
-在 Windows 安装 Tesseract 5 后生成便携压缩包：
+默认生成不包含 Tesseract 的单个 EXE，不再额外压缩：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\package-windows.ps1
+```
+
+精简包适合覆盖升级已经带有 `tesseract` 目录的现有安装；新设备首次部署应使用下面的完整包，否则 OCR 无法运行。
+
+CI 使用 GitHub Actions 的递增 `run_number` 作为构建号。例如基础版本为 `0.1.0`、第 42 次构建时，软件主页面显示 `v0.1.0+42`，精简构建文件名为 `rust-pigeon-v0.1.0-build.42.exe`。本地打包可用 `-BuildNumber 42` 指定同样的构建号；不传且不在 CI 中运行时只使用基础版本。
+
+需要生成包含 Tesseract 的完整包时，先安装 Tesseract 5，然后增加 `-IncludeTesseract`：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\package-windows.ps1 `
+  -IncludeTesseract
 ```
 
 如果 Tesseract 不在默认目录：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\package-windows.ps1 `
+  -IncludeTesseract `
   -TesseractDir "D:\Tools\Tesseract-OCR"
 ```
 
@@ -100,12 +126,12 @@ powershell -ExecutionPolicy Bypass -File scripts\package-windows.ps1 `
 仓库包含 `.github/workflows/windows-build.yml`。推送到 `main`/`master`、推送 `v*` 标签、创建 Pull Request，或在 GitHub Actions 页面手动运行工作流时，GitHub 会在 Windows runner 上：
 
 1. 安装稳定版 Rust，运行单元测试和 Clippy。
-2. 安装 Windows 版 Tesseract OCR 和英文模型。
-3. 调用 `scripts/package-windows.ps1` 生成便携包。
-4. 校验 EXE、Tesseract 和 `eng.traineddata` 均已包含。
-5. 上传名为 `rust-pigeon-windows-x64` 的构建产物，保留 14 天。
+2. 使用 GitHub Actions `run_number` 生成递增构建版本，并编译进软件主页面。
+3. 默认调用 `scripts/package-windows.ps1`，直接生成带版本号的单个 EXE，不再生成项目内层 ZIP。
+4. 手动运行工作流时可勾选 `include_tesseract`，生成包含 Tesseract 和英文模型、文件名带版本号的完整 ZIP。
+5. 根据所选模式校验 EXE 或 ZIP 内容，并上传构建产物保留 14 天。
 
-下载方法：进入 GitHub 仓库的 **Actions** 页面，打开成功的 **Windows build** 任务，在页面底部 **Artifacts** 区域下载 `rust-pigeon-windows-x64`。下载得到的 Actions 压缩包中包含正式的 `rust-pigeon-windows-x64.zip`。
+下载方法：进入 GitHub 仓库的 **Actions** 页面，打开成功的 **Windows build** 任务，在页面底部 **Artifacts** 区域下载带版本号的产物。GitHub Actions 自身会把 Artifact 包装成下载用 ZIP；默认构建中不再嵌套第二层 ZIP，解压 Artifact 后直接得到 EXE。
 
 CI 产物未经代码签名，首次运行时 Windows SmartScreen 可能提示未知发布者。CI 只能验证构建和文件完整性；发布前仍需在连接 GP-801CE 的 Windows 10/11 实机上验证截图、OCR、RAW 打印和自动切刀。
 
