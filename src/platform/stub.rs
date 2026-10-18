@@ -1,4 +1,4 @@
-use super::{CapturedImage, Platform};
+use super::{CapturedImage, Platform, RegionSelectionReceiver};
 use crate::{config::CaptureRegion, receipt::PrintTicket};
 use std::sync::mpsc::{self, Receiver};
 
@@ -42,4 +42,10 @@ impl RegionOverlay {
 
 pub fn spawn_region_overlay() -> Result<RegionOverlay, String> {
     Ok(RegionOverlay)
+}
+
+pub fn spawn_region_selector() -> Result<RegionSelectionReceiver, String> {
+    let (sender, receiver) = mpsc::channel();
+    let _ = sender.send(Err("区域框选仅支持 Windows".to_owned()));
+    Ok(receiver)
 }

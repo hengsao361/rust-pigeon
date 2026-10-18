@@ -1,19 +1,15 @@
 use crate::{
-    config::{AppConfig, CaptureRegion},
+    config::AppConfig,
     monitor::{MonitorCommand, MonitorEvent, MonitorHandle},
     platform::{
-        CapturedImage, NativePlatform, Platform, RegionOverlay, spawn_region_hotkey,
-        spawn_region_overlay,
+        NativePlatform, Platform, RegionOverlay, RegionSelection, RegionSelectionReceiver,
+        spawn_region_hotkey, spawn_region_overlay, spawn_region_selector,
     },
     print_log,
     receipt::sanitize_channel_input,
 };
-use eframe::egui::{
-    self, Align, Color32, Pos2, Rect, Sense, Stroke, Vec2, ViewportCommand, WindowLevel,
-};
+use eframe::egui::{self, Align, Color32, Vec2, ViewportCommand};
 use std::sync::{Arc, mpsc::Receiver};
-
-type SelectionCapture = Result<(CaptureRegion, CapturedImage), String>;
 
 pub const MAIN_WINDOW_SIZE: Vec2 = Vec2::new(620.0, 540.0);
 pub const APP_VERSION: &str = match option_env!("RUST_PIGEON_BUILD_VERSION") {
@@ -29,19 +25,10 @@ pub struct PigeonApp {
     active: bool,
     status: String,
     last_ocr: String,
-    selector: Option<RegionSelector>,
     hotkey: Option<Receiver<()>>,
     hotkey_requested: bool,
-    selection_capture: Option<Receiver<SelectionCapture>>,
+    selection_capture: Option<RegionSelectionReceiver>,
     region_overlay: Option<RegionOverlay>,
-}
-
-struct RegionSelector {
-    screen: CaptureRegion,
-    screenshot: CapturedImage,
-    texture: Option<egui::TextureHandle>,
-    start: Option<Pos2>,
-    current: Option<Pos2>,
 }
 
 impl PigeonApp {
@@ -71,7 +58,6 @@ impl PigeonApp {
                 "请设定区域并选择打印机".to_owned()
             },
             last_ocr: String::new(),
-            selector: None,
             hotkey,
             hotkey_requested: false,
             selection_capture: None,
@@ -82,7 +68,7 @@ impl PigeonApp {
     }
 
     fn begin_selection(&mut self, ctx: &egui::Context) {
-        if self.selection_capture.is_some() || self.selector.is_some() {
+        if self.selection_capture.is_some() {
             return;
         }
 
@@ -91,45 +77,11 @@ impl PigeonApp {
             overlay.set_region(None);
         }
         ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
-        let platform = Arc::clone(&self.platform);
-        let (sender, receiver) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(300));
-            let result = platform
-                .virtual_screen()
-                .and_then(|screen| platform.capture(screen).map(|image| (screen, image)));
-            let _ = sender.send(result);
-        });
-        self.selection_capture = Some(receiver);
-        self.status = "正在准备区域框选……".to_owned();
-        ctx.request_repaint_after(std::time::Duration::from_millis(350));
-    }
-
-    fn show_selector(&mut self, ctx: &egui::Context, result: SelectionCapture) {
-        match result {
-            Ok((screen, screenshot)) => {
-                let window_scale = ctx.pixels_per_point().max(1.0);
-                self.selector = Some(RegionSelector {
-                    screen,
-                    screenshot,
-                    texture: None,
-                    start: None,
-                    current: None,
-                });
-                ctx.send_viewport_cmd(ViewportCommand::Visible(true));
-                ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
-                ctx.send_viewport_cmd(ViewportCommand::Decorations(false));
-                ctx.send_viewport_cmd(ViewportCommand::WindowLevel(WindowLevel::AlwaysOnTop));
-                ctx.send_viewport_cmd(ViewportCommand::Focus);
-                ctx.send_viewport_cmd(ViewportCommand::OuterPosition(Pos2::new(
-                    screen.x as f32 / window_scale,
-                    screen.y as f32 / window_scale,
-                )));
-                ctx.send_viewport_cmd(ViewportCommand::InnerSize(Vec2::new(
-                    screen.width as f32 / window_scale,
-                    screen.height as f32 / window_scale,
-                )));
+        match spawn_region_selector() {
+            Ok(receiver) => {
+                self.selection_capture = Some(receiver);
                 self.status = "拖动鼠标框选识别区域，Esc 取消".to_owned();
+                ctx.request_repaint_after(std::time::Duration::from_millis(50));
             }
             Err(error) => {
                 ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
@@ -142,21 +94,22 @@ impl PigeonApp {
         }
     }
 
-    fn finish_selection(&mut self, ctx: &egui::Context, region: Option<CaptureRegion>) {
-        let selection_screen = self.selector.as_ref().map(|selector| selector.screen);
-        self.selector = None;
-        ctx.send_viewport_cmd(ViewportCommand::Decorations(true));
-        ctx.send_viewport_cmd(ViewportCommand::WindowLevel(WindowLevel::Normal));
+    fn finish_selection(&mut self, ctx: &egui::Context, selection: Option<RegionSelection>) {
+        ctx.send_viewport_cmd(ViewportCommand::Visible(true));
+        ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
+        ctx.send_viewport_cmd(ViewportCommand::Focus);
         ctx.send_viewport_cmd(ViewportCommand::Resizable(false));
         ctx.send_viewport_cmd(ViewportCommand::InnerSize(MAIN_WINDOW_SIZE));
-        ctx.send_viewport_cmd(ViewportCommand::OuterPosition(Pos2::new(100.0, 100.0)));
 
-        if let Some(region) = region.filter(|value| value.is_valid()) {
-            self.config.region = Some(region);
-            self.config.selection_screen = selection_screen;
+        if let Some(selection) = selection.filter(|value| value.region.is_valid()) {
+            self.config.region = Some(selection.region);
+            self.config.selection_screen = Some(selection.screen);
             self.status = format!(
                 "已设定区域：({}, {}) {}×{}",
-                region.x, region.y, region.width, region.height
+                selection.region.x,
+                selection.region.y,
+                selection.region.width,
+                selection.region.height
             );
             self.apply_config();
             if !self.config.printer_name.is_empty() {
@@ -167,6 +120,26 @@ impl PigeonApp {
             if self.active {
                 let _ = self.monitor.commands.send(MonitorCommand::SetActive(true));
                 self.sync_region_overlay();
+            }
+        }
+    }
+
+    fn handle_selection_result(
+        &mut self,
+        ctx: &egui::Context,
+        result: Result<Option<RegionSelection>, String>,
+    ) {
+        match result {
+            Ok(selection) => self.finish_selection(ctx, selection),
+            Err(error) => {
+                ctx.send_viewport_cmd(ViewportCommand::Visible(true));
+                ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
+                ctx.send_viewport_cmd(ViewportCommand::Focus);
+                self.status = error;
+                if self.active {
+                    let _ = self.monitor.commands.send(MonitorCommand::SetActive(true));
+                    self.sync_region_overlay();
+                }
             }
         }
     }
@@ -226,79 +199,6 @@ impl PigeonApp {
                 }
                 MonitorEvent::Error(error) => self.status = format!("错误：{error}"),
             }
-        }
-    }
-
-    fn selector_ui(&mut self, ui: &mut egui::Ui) {
-        let ctx = ui.ctx().clone();
-        let escape = ctx.input(|input| input.key_pressed(egui::Key::Escape));
-        if escape {
-            self.finish_selection(&ctx, None);
-            return;
-        }
-
-        let mut completed = None;
-        let selector = self.selector.as_mut().expect("selector state");
-        let texture = selector.texture.get_or_insert_with(|| {
-            let size = [
-                selector.screenshot.width as usize,
-                selector.screenshot.height as usize,
-            ];
-            let image = egui::ColorImage::from_rgba_unmultiplied(size, &selector.screenshot.rgba);
-            ctx.load_texture("virtual-screen", image, egui::TextureOptions::LINEAR)
-        });
-
-        let rect = ui.max_rect();
-        ui.painter().image(
-            texture.id(),
-            rect,
-            Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-            Color32::WHITE,
-        );
-        ui.painter()
-            .rect_filled(rect, 0.0, Color32::from_black_alpha(80));
-        let response = ui.allocate_rect(rect, Sense::drag());
-
-        if response.drag_started() {
-            selector.start = response.interact_pointer_pos();
-            selector.current = selector.start;
-        }
-        if response.dragged() {
-            selector.current = response.interact_pointer_pos();
-        }
-
-        if let (Some(start), Some(current)) = (selector.start, selector.current) {
-            let selected = Rect::from_two_pos(start, current);
-            ui.painter().rect_stroke(
-                selected,
-                0.0,
-                Stroke::new(2.0, Color32::from_rgb(0, 200, 255)),
-                egui::StrokeKind::Inside,
-            );
-
-            if response.drag_stopped() {
-                let local = selected.translate(-rect.min.to_vec2());
-                let scale_x = selector.screen.width as f32 / rect.width().max(1.0);
-                let scale_y = selector.screen.height as f32 / rect.height().max(1.0);
-                completed = Some(CaptureRegion {
-                    x: selector.screen.x + (local.min.x * scale_x).round() as i32,
-                    y: selector.screen.y + (local.min.y * scale_y).round() as i32,
-                    width: (local.width() * scale_x).round().max(0.0) as u32,
-                    height: (local.height() * scale_y).round().max(0.0) as u32,
-                });
-            }
-        }
-
-        ui.painter().text(
-            rect.left_top() + Vec2::new(20.0, 20.0),
-            egui::Align2::LEFT_TOP,
-            "拖动框选足环号区域 · Esc 取消",
-            egui::FontId::proportional(20.0),
-            Color32::WHITE,
-        );
-
-        if completed.is_some() {
-            self.finish_selection(&ctx, completed);
         }
     }
 
@@ -519,21 +419,17 @@ impl eframe::App for PigeonApp {
             .and_then(|receiver| receiver.try_recv().ok());
         if let Some(result) = selection_result {
             self.selection_capture = None;
-            self.show_selector(ctx, result);
+            self.handle_selection_result(ctx, result);
         }
         ctx.request_repaint_after(std::time::Duration::from_millis(100));
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        if self.hotkey_requested && self.selector.is_none() {
+        if self.hotkey_requested && self.selection_capture.is_none() {
             self.hotkey_requested = false;
             self.begin_selection(ui.ctx());
         }
-        if self.selector.is_some() {
-            self.selector_ui(ui);
-        } else {
-            self.settings_ui(ui);
-        }
+        self.settings_ui(ui);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
