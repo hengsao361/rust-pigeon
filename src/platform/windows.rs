@@ -1,4 +1,4 @@
-use super::{CapturedImage, Platform};
+use super::{CapturedImage, Platform, PrinterHealth};
 use crate::{
     config::CaptureRegion,
     receipt::{PrintTicket, ReceiptFonts, ReceiptTimestamp, escpos_raster_receipt, render_receipt},
@@ -25,8 +25,11 @@ use windows::{
             },
             Printing::{
                 ClosePrinter, DOC_INFO_1W, EndDocPrinter, EndPagePrinter, EnumPrintersW,
-                OpenPrinterW, PRINTER_ENUM_LOCAL, PRINTER_HANDLE, PRINTER_INFO_4W,
-                StartDocPrinterW, StartPagePrinter, WritePrinter,
+                GetPrinterW, OpenPrinterW, PRINTER_ENUM_LOCAL, PRINTER_HANDLE, PRINTER_INFO_4W,
+                PRINTER_INFO_6, PRINTER_STATUS_DOOR_OPEN, PRINTER_STATUS_ERROR,
+                PRINTER_STATUS_NOT_AVAILABLE, PRINTER_STATUS_OFFLINE, PRINTER_STATUS_PAPER_JAM,
+                PRINTER_STATUS_PAPER_OUT, PRINTER_STATUS_PAPER_PROBLEM, PRINTER_STATUS_PAUSED,
+                PRINTER_STATUS_USER_INTERVENTION, StartDocPrinterW, StartPagePrinter, WritePrinter,
             },
         },
         System::SystemInformation::GetLocalTime,
@@ -226,6 +229,18 @@ impl Platform for NativePlatform {
             OpenPrinterW(PCWSTR(printer.as_ptr()), &mut handle, None)
                 .map_err(|_| last_error("OpenPrinterW"))?;
 
+            let health = match printer_health(handle) {
+                Ok(health) => health,
+                Err(error) => {
+                    let _ = ClosePrinter(handle);
+                    return Err(error);
+                }
+            };
+            if let Some(reason) = health.unavailable_reason() {
+                let _ = ClosePrinter(handle);
+                return Err(reason.to_owned());
+            }
+
             let info = DOC_INFO_1W {
                 pDocName: PWSTR(document_name.as_ptr() as *mut _),
                 pOutputFile: PWSTR::null(),
@@ -252,8 +267,10 @@ impl Platform for NativePlatform {
                 &mut written,
             );
             let write_error = (!write_result.as_bool()).then(|| last_error("WritePrinter"));
-            let _ = EndPagePrinter(handle);
-            let _ = EndDocPrinter(handle);
+            let end_page_result = EndPagePrinter(handle);
+            let end_page_error = (!end_page_result.as_bool()).then(|| last_error("EndPagePrinter"));
+            let end_doc_result = EndDocPrinter(handle);
+            let end_doc_error = (!end_doc_result.as_bool()).then(|| last_error("EndDocPrinter"));
             let _ = ClosePrinter(handle);
 
             if let Some(error) = write_error {
@@ -261,6 +278,12 @@ impl Platform for NativePlatform {
             }
             if written != bytes.len() as u32 {
                 return Err(format!("打印数据只写入 {written}/{} 字节", bytes.len()));
+            }
+            if let Some(error) = end_page_error {
+                return Err(error);
+            }
+            if let Some(error) = end_doc_error {
+                return Err(error);
             }
             Ok(())
         }
@@ -281,6 +304,32 @@ impl Platform for NativePlatform {
             })
         }
     }
+}
+
+unsafe fn printer_health(handle: PRINTER_HANDLE) -> Result<PrinterHealth, String> {
+    let mut info = PRINTER_INFO_6::default();
+    let mut needed = size_of::<PRINTER_INFO_6>() as u32;
+    let bytes = unsafe {
+        std::slice::from_raw_parts_mut(
+            (&mut info as *mut PRINTER_INFO_6).cast::<u8>(),
+            size_of::<PRINTER_INFO_6>(),
+        )
+    };
+    unsafe { GetPrinterW(handle, 6, Some(bytes), &mut needed) }
+        .map_err(|_| last_error("读取打印机状态"))?;
+
+    let status = info.dwStatus;
+    Ok(PrinterHealth {
+        offline: status & PRINTER_STATUS_OFFLINE != 0,
+        error: status & PRINTER_STATUS_ERROR != 0,
+        not_available: status & PRINTER_STATUS_NOT_AVAILABLE != 0,
+        paused: status & PRINTER_STATUS_PAUSED != 0,
+        paper_out: status & PRINTER_STATUS_PAPER_OUT != 0,
+        paper_jam: status & PRINTER_STATUS_PAPER_JAM != 0,
+        paper_problem: status & PRINTER_STATUS_PAPER_PROBLEM != 0,
+        door_open: status & PRINTER_STATUS_DOOR_OPEN != 0,
+        user_intervention: status & PRINTER_STATUS_USER_INTERVENTION != 0,
+    })
 }
 
 fn receipt_fonts() -> Result<&'static ReceiptFonts, String> {

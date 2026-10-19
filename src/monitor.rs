@@ -476,6 +476,22 @@ mod tests {
     }
 
     #[test]
+    fn failed_print_is_not_deduplicated() {
+        let mut gate = StabilityGate::new(1, None);
+        assert!(matches!(
+            gate.observe(Some("0237849")),
+            GateDecision::Ready(_)
+        ));
+
+        gate.mark_print_failed();
+
+        assert!(matches!(
+            gate.observe(Some("0237849")),
+            GateDecision::Ready(_)
+        ));
+    }
+
+    #[test]
     fn accelerates_only_while_confirming_a_new_candidate() {
         let config = AppConfig::default();
         let mut gate = StabilityGate::new(3, Some("0237849".to_owned()));

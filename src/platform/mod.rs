@@ -29,6 +29,47 @@ pub type RegionSelectionResult = Result<Option<RegionSelection>, String>;
 pub type RegionSelectionReceiver = Receiver<RegionSelectionResult>;
 
 #[cfg(any(windows, test))]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PrinterHealth {
+    pub offline: bool,
+    pub error: bool,
+    pub not_available: bool,
+    pub paused: bool,
+    pub paper_out: bool,
+    pub paper_jam: bool,
+    pub paper_problem: bool,
+    pub door_open: bool,
+    pub user_intervention: bool,
+}
+
+#[cfg(any(windows, test))]
+impl PrinterHealth {
+    pub(crate) fn unavailable_reason(self) -> Option<&'static str> {
+        if self.offline {
+            Some("打印机已脱机")
+        } else if self.not_available {
+            Some("打印机不可用")
+        } else if self.paused {
+            Some("打印机已暂停")
+        } else if self.paper_out {
+            Some("打印机缺纸")
+        } else if self.paper_jam {
+            Some("打印机卡纸")
+        } else if self.paper_problem {
+            Some("打印机纸张异常")
+        } else if self.door_open {
+            Some("打印机仓盖未关闭")
+        } else if self.user_intervention {
+            Some("打印机需要人工处理")
+        } else if self.error {
+            Some("打印机状态异常")
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(any(windows, test))]
 pub(crate) fn region_from_client_points(
     screen: CaptureRegion,
     start: (i32, i32),
@@ -106,6 +147,65 @@ mod tests {
                 width: 400,
                 height: 200,
             }
+        );
+    }
+
+    #[test]
+    fn offline_printer_is_not_ready() {
+        let health = PrinterHealth {
+            offline: true,
+            ..Default::default()
+        };
+
+        assert_eq!(health.unavailable_reason(), Some("打印机已脱机"));
+    }
+
+    #[test]
+    fn healthy_printer_is_ready() {
+        assert_eq!(PrinterHealth::default().unavailable_reason(), None);
+    }
+
+    #[test]
+    fn every_blocking_printer_state_has_an_error() {
+        let states = [
+            PrinterHealth {
+                error: true,
+                ..Default::default()
+            },
+            PrinterHealth {
+                not_available: true,
+                ..Default::default()
+            },
+            PrinterHealth {
+                paused: true,
+                ..Default::default()
+            },
+            PrinterHealth {
+                paper_out: true,
+                ..Default::default()
+            },
+            PrinterHealth {
+                paper_jam: true,
+                ..Default::default()
+            },
+            PrinterHealth {
+                paper_problem: true,
+                ..Default::default()
+            },
+            PrinterHealth {
+                door_open: true,
+                ..Default::default()
+            },
+            PrinterHealth {
+                user_intervention: true,
+                ..Default::default()
+            },
+        ];
+
+        assert!(
+            states
+                .into_iter()
+                .all(|state| state.unavailable_reason().is_some())
         );
     }
 }
