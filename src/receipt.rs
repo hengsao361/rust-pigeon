@@ -432,7 +432,7 @@ mod tests {
             split_ring_number("2026-03-0015369"),
             (Some("2026-03"), "0015369")
         );
-        assert_eq!(split_ring_number("JN-0347895"), (Some("JN"), "0347895"));
+        assert_eq!(split_ring_number("JNH05-034789"), (Some("JNH05"), "034789"));
         assert_eq!(split_ring_number("0237849"), (None, "0237849"));
     }
 }

@@ -13,7 +13,7 @@ static NSString *RingNumberForIndex(NSInteger index, NSString **shapeName) {
         @"21", @"22", @"23", @"24", @"25", @"26", @"27", @"28", @"29", @"30",
         @"31", @"32", @"33"
     ];
-    NSString *region = index % 17 == 0 ? @"JN" : regionCodes[(index * 7) % regionCodes.count];
+    NSString *region = regionCodes[(index * 7) % regionCodes.count];
     NSInteger serialValue = 1000000 + ((index + 1) * 73421) % 9000000;
     NSString *serial = [NSString stringWithFormat:@"%07ld", (long)serialValue];
     NSInteger selector = index % 10;
@@ -27,9 +27,17 @@ static NSString *RingNumberForIndex(NSInteger index, NSString **shapeName) {
         *shapeName = @"two-part";
         return [NSString stringWithFormat:@"%@-%@", region, serial];
     }
+    if (selector < 9) {
+        *shapeName = @"one-part";
+        return serial;
+    }
 
-    *shapeName = @"one-part";
-    return serial;
+    *shapeName = @"memorial";
+    NSString *prefix = index % 2 == 0 ? @"JN" : @"JNH";
+    NSInteger code = (index * 13) % 100;
+    NSInteger memorialSerial = 100000 + ((index + 1) * 9173) % 900000;
+    return [NSString stringWithFormat:@"%@%02ld-%06ld",
+        prefix, (long)code, (long)memorialSerial];
 }
 
 static BOOL WritePNG(NSImage *image, NSString *path) {

@@ -24,9 +24,9 @@ int main(void) {
                 @"foreground": [NSColor blackColor]
             },
             @{
-                @"fileName": @"002_2026-JN-0387764_TimesNewRomanBold_40pt.png",
-                @"ringNumber": @"2026-JN-0387764",
-                @"displayText": @"RING NO. 2026-JN-0387764",
+                @"fileName": @"002_JNH05-038776_TimesNewRomanBold_40pt.png",
+                @"ringNumber": @"JNH05-038776",
+                @"displayText": @"RING NO. JNH05-038776",
                 @"fontName": @"Times New Roman Bold",
                 @"pointSize": @40,
                 @"background": [NSColor colorWithCalibratedWhite:0.94 alpha:1.0],

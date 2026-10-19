@@ -55,6 +55,16 @@ jobs:
           $fileVersion = "$baseVersion-build.${{ github.run_number }}"
           "FILE_VERSION=$fileVersion" | Out-File -FilePath $env:GITHUB_ENV -Append
 
+      - name: Validate embedded upload token
+        if: ${{ github.event_name != 'pull_request' }}
+        shell: pwsh
+        env:
+          RUST_PIGEON_LOG_UPLOAD_TOKEN: ${{ secrets.RUST_PIGEON_LOG_UPLOAD_TOKEN }}
+        run: |
+          if ($env:RUST_PIGEON_LOG_UPLOAD_TOKEN.Length -lt 32) {
+            throw "Repository secret RUST_PIGEON_LOG_UPLOAD_TOKEN is missing or shorter than 32 characters."
+          }
+
       - name: Install Tesseract OCR
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.include_tesseract }}
         shell: pwsh
@@ -77,6 +87,8 @@ jobs:
 
       - name: Build Windows package
         shell: pwsh
+        env:
+          RUST_PIGEON_LOG_UPLOAD_TOKEN: ${{ secrets.RUST_PIGEON_LOG_UPLOAD_TOKEN }}
         run: |
           if ("${{ github.event_name == 'workflow_dispatch' && inputs.include_tesseract }}" -eq "true") {
             .\scripts\package-windows.ps1 -BuildNumber "${{ github.run_number }}" -IncludeTesseract -TesseractDir $env:TESSERACT_DIR

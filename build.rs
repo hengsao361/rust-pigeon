@@ -7,6 +7,7 @@ use std::{
 
 fn main() {
     println!("cargo:rerun-if-changed=assets/app-icon.png.b64");
+    println!("cargo:rerun-if-env-changed=RUST_PIGEON_LOG_UPLOAD_TOKEN");
 
     let output_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR"));
     let png = decode_base64(include_str!("assets/app-icon.png.b64"));

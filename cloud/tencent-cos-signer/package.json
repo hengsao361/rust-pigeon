@@ -1,0 +1,16 @@
+{
+  "name": "rust-pigeon-cos-signer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tencent SCF signer for Rust Pigeon daily CSV uploads",
+  "main": "index.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "cos-nodejs-sdk-v5": "3.0.0"
+  }
+}

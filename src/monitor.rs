@@ -117,7 +117,8 @@ fn run_monitor(
                 let ticket = print_ticket(&config, value);
                 match platform.print_ring(&printer_name, &ticket) {
                     Ok(()) => {
-                        let log_error = log_print_success(value, &printer_name, PrintAction::Test);
+                        let log_error =
+                            log_print_success(value, &config.channel, PrintAction::Test);
                         let _ = events.send(MonitorEvent::Status("测试打印已发送".to_owned()));
                         send_log_error(&events, log_error);
                     }
@@ -131,7 +132,8 @@ fn run_monitor(
                 value,
             }) => match platform.print_ring(&printer_name, &print_ticket(&config, &value)) {
                 Ok(()) => {
-                    let log_error = log_print_success(&value, &printer_name, PrintAction::Reprint);
+                    let log_error =
+                        log_print_success(&value, &config.channel, PrintAction::Reprint);
                     let _ = events.send(MonitorEvent::Reprinted(value));
                     send_log_error(&events, log_error);
                 }
@@ -177,7 +179,7 @@ fn run_monitor(
                     match platform.print_ring(&printer_name, &ticket) {
                         Ok(()) => {
                             let log_error =
-                                log_print_success(value, &printer_name, PrintAction::Test);
+                                log_print_success(value, &config.channel, PrintAction::Test);
                             let _ = events.send(MonitorEvent::Status("测试打印已发送".to_owned()));
                             send_log_error(&events, log_error);
                         }
@@ -192,7 +194,7 @@ fn run_monitor(
                 }) => match platform.print_ring(&printer_name, &print_ticket(&config, &value)) {
                     Ok(()) => {
                         let log_error =
-                            log_print_success(&value, &printer_name, PrintAction::Reprint);
+                            log_print_success(&value, &config.channel, PrintAction::Reprint);
                         let _ = events.send(MonitorEvent::Reprinted(value));
                         send_log_error(&events, log_error);
                     }
@@ -305,7 +307,7 @@ fn monitor_once(
                 Ok(()) => {
                     gate.mark_printed(value.clone());
                     let log_error =
-                        log_print_success(&value, &config.printer_name, PrintAction::Automatic);
+                        log_print_success(&value, &config.channel, PrintAction::Automatic);
                     let _ = events.send(MonitorEvent::Printed(value));
                     send_log_error(events, log_error);
                 }
@@ -333,8 +335,8 @@ fn print_ticket(config: &AppConfig, value: &str) -> PrintTicket {
     PrintTicket::new(value, &config.business_content, &config.channel)
 }
 
-fn log_print_success(value: &str, printer_name: &str, action: PrintAction) -> Option<String> {
-    print_log::append_success(value, printer_name, action)
+fn log_print_success(value: &str, channel: &str, action: PrintAction) -> Option<String> {
+    print_log::append_success(value, channel, action)
         .err()
         .map(|error| format!("打印成功，但写入本地日志失败：{error}"))
 }

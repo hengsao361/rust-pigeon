@@ -242,7 +242,7 @@ impl PigeonApp {
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                ui.label("佳博打印机");
+                ui.label("热敏打印机");
                 let before = self.config.printer_name.clone();
                 egui::ComboBox::from_id_salt("printer")
                     .selected_text(if self.config.printer_name.is_empty() {
@@ -297,15 +297,24 @@ impl PigeonApp {
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
+                let monitor_button_size = egui::vec2(112.0, 40.0);
                 if ui
-                    .add_enabled(!self.active, egui::Button::new("开始监控"))
+                    .add_enabled(
+                        !self.active,
+                        egui::Button::new(egui::RichText::new("开始监控").size(17.0))
+                            .min_size(monitor_button_size),
+                    )
                     .clicked()
                 {
                     self.apply_config();
                     self.set_active(true);
                 }
                 if ui
-                    .add_enabled(self.active, egui::Button::new("暂停监控"))
+                    .add_enabled(
+                        self.active,
+                        egui::Button::new(egui::RichText::new("暂停监控").size(17.0))
+                            .min_size(monitor_button_size),
+                    )
                     .clicked()
                 {
                     self.set_active(false);
@@ -366,7 +375,7 @@ impl PigeonApp {
 
             ui.separator();
             ui.label("全局热键：Ctrl + Shift + R（重新框选并立即继续监控）");
-            ui.label("三段/两段格式只接受正式地区码 01–33 或 JN；纯数字严格匹配所选位数。");
+            ui.label("通用：标准环、7位纯数字环、JN/JNH 纪念环；其他选项严格匹配纯数字位数。");
             ui.add_space(8.0);
             ui.label("最近 OCR 原文");
             ui.add(

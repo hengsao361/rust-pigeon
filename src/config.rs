@@ -169,19 +169,30 @@ mod tests {
     fn recognition_options_have_safe_defaults_for_older_configs() {
         let default_config = AppConfig::default();
         assert!(!default_config.repeat_ocr_during_stability);
-        assert_eq!(default_config.ocr_format, OcrFormat::SingleLineThreePart);
+        assert_eq!(default_config.ocr_format, OcrFormat::General);
         assert_eq!(
             serde_json::to_value(&default_config).unwrap()["repeat_ocr_during_stability"],
             false
         );
         assert_eq!(
             serde_json::to_value(&default_config).unwrap()["ocr_format"],
-            "single_line_three_part"
+            "general"
         );
 
         let config: AppConfig = serde_json::from_str("{}").unwrap();
         assert!(!config.repeat_ocr_during_stability);
-        assert_eq!(config.ocr_format, OcrFormat::SingleLineThreePart);
+        assert_eq!(config.ocr_format, OcrFormat::General);
+
+        for legacy_value in [
+            "single_line_three_part",
+            "multiline_three_part",
+            "single_line_two_part",
+            "single_line_digits7",
+        ] {
+            let json = format!(r#"{{"ocr_format":"{legacy_value}"}}"#);
+            let config: AppConfig = serde_json::from_str(&json).unwrap();
+            assert_eq!(config.ocr_format, OcrFormat::General);
+        }
     }
 
     #[test]
