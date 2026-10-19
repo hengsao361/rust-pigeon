@@ -1,4 +1,4 @@
-use super::{CapturedImage, Platform, PrinterHealth};
+use super::{CapturedImage, Platform, PrinterHealth, query_system_buffer};
 use crate::{
     config::CaptureRegion,
     receipt::{PrintTicket, ReceiptFonts, ReceiptTimestamp, escpos_raster_receipt, render_receipt},
@@ -26,9 +26,9 @@ use windows::{
             Printing::{
                 ClosePrinter, DOC_INFO_1W, EndDocPrinter, EndPagePrinter, EnumPrintersW,
                 GetPrinterW, OpenPrinterW, PRINTER_ENUM_LOCAL, PRINTER_HANDLE, PRINTER_INFO_4W,
-                PRINTER_INFO_6, PRINTER_STATUS_DOOR_OPEN, PRINTER_STATUS_ERROR,
-                PRINTER_STATUS_NOT_AVAILABLE, PRINTER_STATUS_OFFLINE, PRINTER_STATUS_PAPER_JAM,
-                PRINTER_STATUS_PAPER_OUT, PRINTER_STATUS_PAPER_PROBLEM, PRINTER_STATUS_PAUSED,
+                PRINTER_STATUS_DOOR_OPEN, PRINTER_STATUS_ERROR, PRINTER_STATUS_NOT_AVAILABLE,
+                PRINTER_STATUS_OFFLINE, PRINTER_STATUS_PAPER_JAM, PRINTER_STATUS_PAPER_OUT,
+                PRINTER_STATUS_PAPER_PROBLEM, PRINTER_STATUS_PAUSED,
                 PRINTER_STATUS_USER_INTERVENTION, StartDocPrinterW, StartPagePrinter, WritePrinter,
             },
         },
@@ -307,18 +307,14 @@ impl Platform for NativePlatform {
 }
 
 unsafe fn printer_health(handle: PRINTER_HANDLE) -> Result<PrinterHealth, String> {
-    let mut info = PRINTER_INFO_6::default();
-    let mut needed = size_of::<PRINTER_INFO_6>() as u32;
-    let bytes = unsafe {
-        std::slice::from_raw_parts_mut(
-            (&mut info as *mut PRINTER_INFO_6).cast::<u8>(),
-            size_of::<PRINTER_INFO_6>(),
-        )
-    };
-    unsafe { GetPrinterW(handle, 6, Some(bytes), &mut needed) }
-        .map_err(|_| last_error("读取打印机状态"))?;
-
-    let status = info.dwStatus;
+    let bytes = query_system_buffer(|buffer, needed| {
+        unsafe { GetPrinterW(handle, 6, buffer, needed) }.map_err(|_| last_error("读取打印机状态"))
+    })?;
+    let status = u32::from_ne_bytes(
+        bytes[..size_of::<u32>()]
+            .try_into()
+            .map_err(|_| "Windows 返回的打印机状态数据不完整".to_owned())?,
+    );
     Ok(PrinterHealth {
         offline: status & PRINTER_STATUS_OFFLINE != 0,
         error: status & PRINTER_STATUS_ERROR != 0,

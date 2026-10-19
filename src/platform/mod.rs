@@ -70,6 +70,29 @@ impl PrinterHealth {
 }
 
 #[cfg(any(windows, test))]
+pub(crate) fn query_system_buffer(
+    mut query: impl FnMut(Option<&mut [u8]>, &mut u32) -> Result<(), String>,
+) -> Result<Vec<u8>, String> {
+    const MAX_SYSTEM_BUFFER_BYTES: u32 = 1024 * 1024;
+
+    let mut needed = 0;
+    let probe_error = query(None, &mut needed).err();
+    if needed < std::mem::size_of::<u32>() as u32 {
+        return Err(probe_error.unwrap_or_else(|| "Windows 未返回有效的缓冲区大小".to_owned()));
+    }
+    if needed > MAX_SYSTEM_BUFFER_BYTES {
+        return Err(format!("Windows 返回的缓冲区过大：{needed} 字节"));
+    }
+
+    let mut bytes = vec![0_u8; needed as usize];
+    query(Some(&mut bytes), &mut needed)?;
+    if needed as usize > bytes.len() {
+        return Err(format!("Windows 状态数据长度在查询期间变为 {needed} 字节"));
+    }
+    Ok(bytes)
+}
+
+#[cfg(any(windows, test))]
 pub(crate) fn region_from_client_points(
     screen: CaptureRegion,
     start: (i32, i32),
@@ -207,5 +230,28 @@ mod tests {
                 .into_iter()
                 .all(|state| state.unavailable_reason().is_some())
         );
+    }
+
+    #[test]
+    fn system_buffer_uses_the_size_reported_by_windows() -> Result<(), String> {
+        let mut calls = 0;
+        let bytes = query_system_buffer(|buffer, needed| {
+            calls += 1;
+            const REQUIRED: usize = 32;
+            *needed = REQUIRED as u32;
+            let Some(buffer) = buffer else {
+                return Err("传递给系统调用的数据区域太小 0x8007007A".to_owned());
+            };
+            if buffer.len() < REQUIRED {
+                return Err("传递给系统调用的数据区域太小 0x8007007A".to_owned());
+            }
+            buffer[..4].copy_from_slice(&128_u32.to_ne_bytes());
+            Ok(())
+        })?;
+
+        assert_eq!(calls, 2);
+        assert_eq!(u32::from_ne_bytes(bytes[..4].try_into().unwrap()), 128);
+
+        Ok::<(), String>(())
     }
 }
