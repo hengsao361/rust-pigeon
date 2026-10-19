@@ -1,13 +1,13 @@
 "use strict";
 
 const assert = require("assert/strict");
-const { normalizePrefix, validateUploadRequest, validUtcDate } = require("./index")._test;
+const { normalizePrefix, validateUploadRequest, validCalendarDate } = require("./index")._test;
 
 const clientId = "0123456789abcdef0123456789abcdef";
 
 assert.equal(normalizePrefix("/log/printer/"), "log/printer");
-assert.equal(validUtcDate(2024, 2, 29), true);
-assert.equal(validUtcDate(2025, 2, 29), false);
+assert.equal(validCalendarDate(2024, 2, 29), true);
+assert.equal(validCalendarDate(2025, 2, 29), false);
 
 assert.deepEqual(
   validateUploadRequest({

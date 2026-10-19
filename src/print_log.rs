@@ -146,26 +146,26 @@ fn append_success_at(
     action: PrintAction,
 ) -> io::Result<()> {
     fs::create_dir_all(directory)?;
-    let timestamp_utc = format_utc(duration.as_secs(), duration.subsec_millis());
+    let timestamp_shanghai = format_shanghai(duration.as_secs(), duration.subsec_millis());
     let channel = format_channel(channel);
-    let path = history_path_at(directory, client_id, &timestamp_utc);
+    let path = history_path_at(directory, client_id, &timestamp_shanghai);
 
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
     if file.metadata()?.len() == 0 {
-        file.write_all(b"channel,timestamp_utc,ring_number,action\n")?;
+        file.write_all(b"channel,timestamp_shanghai,ring_number,action\n")?;
     }
     writeln!(
         file,
         "{},{},{},{}",
         csv_field(&channel),
-        csv_field(&timestamp_utc),
+        csv_field(&timestamp_shanghai),
         csv_field(ring_number),
         csv_field(action.as_str())
     )
 }
 
-fn history_path_at(directory: &Path, client_id: &str, timestamp_utc: &str) -> PathBuf {
-    let date = timestamp_utc.get(..10).unwrap_or("unknown-date");
+fn history_path_at(directory: &Path, client_id: &str, timestamp_shanghai: &str) -> PathBuf {
+    let date = timestamp_shanghai.get(..10).unwrap_or("unknown-date");
     directory.join(format!(
         "{HISTORY_FILE_PREFIX}{client_id}-{date}{HISTORY_FILE_SUFFIX}"
     ))
@@ -506,13 +506,15 @@ fn append_upload_status(status: &str) -> io::Result<()> {
     writeln!(
         file,
         "{} {status}",
-        format_utc(duration.as_secs(), duration.subsec_millis())
+        format_shanghai(duration.as_secs(), duration.subsec_millis())
     )
 }
 
-fn format_utc(seconds: u64, millis: u32) -> String {
-    let days = (seconds / 86_400) as i64;
-    let seconds_in_day = seconds % 86_400;
+fn format_shanghai(seconds: u64, millis: u32) -> String {
+    const SHANGHAI_OFFSET_SECONDS: u64 = 8 * 60 * 60;
+    let local_seconds = seconds.saturating_add(SHANGHAI_OFFSET_SECONDS);
+    let days = (local_seconds / 86_400) as i64;
+    let seconds_in_day = local_seconds % 86_400;
     let hour = seconds_in_day / 3_600;
     let minute = seconds_in_day % 3_600 / 60;
     let second = seconds_in_day % 60;
@@ -533,7 +535,7 @@ fn format_utc(seconds: u64, millis: u32) -> String {
     let month = month_prime + if month_prime < 10 { 3 } else { -9 };
     year += i64::from(month <= 2);
 
-    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis:03}Z")
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis:03}+08:00")
 }
 
 #[cfg(test)]
@@ -543,9 +545,12 @@ mod tests {
     const TEST_CLIENT_ID: &str = "0123456789abcdef0123456789abcdef";
 
     #[test]
-    fn utc_format_matches_unix_epoch() {
-        assert_eq!(format_utc(0, 0), "1970-01-01T00:00:00.000Z");
-        assert_eq!(format_utc(1_767_225_600, 123), "2026-01-01T00:00:00.123Z");
+    fn shanghai_format_matches_unix_epoch() {
+        assert_eq!(format_shanghai(0, 0), "1970-01-01T08:00:00.000+08:00");
+        assert_eq!(
+            format_shanghai(1_767_225_600, 123),
+            "2026-01-01T08:00:00.123+08:00"
+        );
     }
 
     #[test]
@@ -601,12 +606,12 @@ mod tests {
         let content = fs::read_to_string(&path).unwrap();
         let lines: Vec<_> = content.lines().collect();
         assert_eq!(lines.len(), 3);
-        assert_eq!(lines[0], "channel,timestamp_utc,ring_number,action");
+        assert_eq!(lines[0], "channel,timestamp_shanghai,ring_number,action");
 
         let first: Vec<_> = lines[1].split(',').collect();
         assert_eq!(first.len(), 4);
         assert_eq!(first[0], "05");
-        assert!(first[1].ends_with('Z'));
+        assert!(first[1].ends_with("+08:00"));
         assert_eq!(first[2], "2026-03-0498274");
         assert_eq!(first[3], "automatic");
 
@@ -619,7 +624,7 @@ mod tests {
     }
 
     #[test]
-    fn splits_csv_history_by_utc_day() {
+    fn splits_csv_history_by_shanghai_day() {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -628,7 +633,7 @@ mod tests {
 
         append_success_at(
             &root,
-            Duration::from_secs(86_399),
+            Duration::from_secs(57_599),
             TEST_CLIENT_ID,
             "1234567",
             "1",
@@ -637,7 +642,7 @@ mod tests {
         .unwrap();
         append_success_at(
             &root,
-            Duration::from_secs(86_400),
+            Duration::from_secs(57_600),
             TEST_CLIENT_ID,
             "7654321",
             "2",
@@ -661,7 +666,7 @@ mod tests {
             let content = fs::read_to_string(path).unwrap();
             assert_eq!(
                 content
-                    .matches("channel,timestamp_utc,ring_number,action")
+                    .matches("channel,timestamp_shanghai,ring_number,action")
                     .count(),
                 1
             );

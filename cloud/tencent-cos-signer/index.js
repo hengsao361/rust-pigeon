@@ -82,7 +82,7 @@ function parseBody(event) {
   return JSON.parse(raw);
 }
 
-function validUtcDate(year, month, day) {
+function validCalendarDate(year, month, day) {
   const date = new Date(Date.UTC(year, month - 1, day));
   return (
     year >= 2000 &&
@@ -108,8 +108,8 @@ function validateUploadRequest(body) {
   if (!match || match[1] !== clientId) {
     throw new Error("file_name is invalid or belongs to another client");
   }
-  if (!validUtcDate(Number(match[2]), Number(match[3]), Number(match[4]))) {
-    throw new Error("file_name contains an invalid UTC date");
+  if (!validCalendarDate(Number(match[2]), Number(match[3]), Number(match[4]))) {
+    throw new Error("file_name contains an invalid calendar date");
   }
   return { clientId, fileName };
 }
@@ -182,5 +182,5 @@ exports.main_handler = async (event) => {
 exports._test = {
   normalizePrefix,
   validateUploadRequest,
-  validUtcDate,
+  validCalendarDate,
 };

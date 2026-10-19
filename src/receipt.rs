@@ -4,6 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const RECEIPT_WIDTH: u32 = 576;
 pub const RECEIPT_HEIGHT: u32 = 420;
+const RASTER_VERTICAL_PADDING_DOTS: usize = 8;
 pub const DEFAULT_BUSINESS_CONTENTS: [&str; 6] = [
     "勇夺桂冠",
     "所向披靡",
@@ -29,19 +30,17 @@ impl PrintTicket {
         }
     }
 
-    pub fn qr_payload(&self, compact_timestamp: &str) -> String {
-        let content = format!(
-            "ycd://{}&ts={compact_timestamp}&ch={}",
+    pub fn qr_payload(&self, unix_timestamp_seconds: u64) -> String {
+        format!(
+            "ycd:{}@{unix_timestamp_seconds}&ch{}",
             self.ring_number, self.channel
-        );
-        let checksum = crc8_smbus(content.as_bytes());
-        format!("{content}&crc={checksum:02X}")
+        )
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReceiptTimestamp {
-    pub compact: String,
+    pub unix_seconds: u64,
     pub display: String,
 }
 
@@ -86,21 +85,6 @@ pub fn sanitize_channel_input(value: &str) -> String {
     }
 }
 
-pub fn crc8_smbus(bytes: &[u8]) -> u8 {
-    let mut crc = 0_u8;
-    for byte in bytes {
-        crc ^= byte;
-        for _ in 0..8 {
-            crc = if crc & 0x80 != 0 {
-                (crc << 1) ^ 0x07
-            } else {
-                crc << 1
-            };
-        }
-    }
-    crc
-}
-
 pub fn render_receipt(
     ticket: &PrintTicket,
     timestamp: &ReceiptTimestamp,
@@ -121,7 +105,7 @@ pub fn render_receipt(
         15.0,
     );
 
-    let payload = ticket.qr_payload(&timestamp.compact);
+    let payload = ticket.qr_payload(timestamp.unix_seconds);
     canvas.draw_qr(&payload, 24, 72, 220)?;
     canvas.stroke_rounded_rect(260, 62, 296, 244, 54, 4);
 
@@ -164,7 +148,9 @@ pub fn render_receipt(
 
 pub fn escpos_raster_receipt(bitmap: &MonochromeBitmap) -> Vec<u8> {
     let width_bytes = bitmap.width.div_ceil(8);
-    let mut bytes = Vec::with_capacity((width_bytes * bitmap.height) as usize + 32);
+    let (start_y, end_y) = vertical_print_bounds(bitmap);
+    let print_height = (end_y - start_y) as u32;
+    let mut bytes = Vec::with_capacity((width_bytes * print_height) as usize + 32);
     bytes.extend_from_slice(&[0x1b, 0x40]); // Initialize.
     bytes.extend_from_slice(&[0x1b, 0x61, 0x01]); // Center.
     bytes.extend_from_slice(&[
@@ -174,11 +160,11 @@ pub fn escpos_raster_receipt(bitmap: &MonochromeBitmap) -> Vec<u8> {
         0x00,
         width_bytes as u8,
         (width_bytes >> 8) as u8,
-        bitmap.height as u8,
-        (bitmap.height >> 8) as u8,
+        print_height as u8,
+        (print_height >> 8) as u8,
     ]);
 
-    for y in 0..bitmap.height as usize {
+    for y in start_y..end_y {
         for byte_x in 0..width_bytes as usize {
             let mut packed = 0_u8;
             for bit in 0..8 {
@@ -191,9 +177,36 @@ pub fn escpos_raster_receipt(bitmap: &MonochromeBitmap) -> Vec<u8> {
         }
     }
 
-    bytes.extend_from_slice(b"\n\n\n");
-    bytes.extend_from_slice(&[0x1d, 0x56, 0x42, 0x00]); // Feed then partial cut.
+    bytes.extend_from_slice(&[0x1d, 0x56, 0x42, 0x00]); // Feed to cutter, then partial cut.
     bytes
+}
+
+fn vertical_print_bounds(bitmap: &MonochromeBitmap) -> (usize, usize) {
+    let width = bitmap.width as usize;
+    let height = bitmap.height as usize;
+    let Some(expected_len) = width.checked_mul(height) else {
+        return (0, height);
+    };
+    if width == 0 || height == 0 || bitmap.pixels.len() < expected_len {
+        return (0, height);
+    }
+
+    let row_has_ink = |y: usize| {
+        bitmap.pixels[y * width..(y + 1) * width]
+            .iter()
+            .any(|pixel| *pixel < 180)
+    };
+    let Some(first_ink_row) = (0..height).find(|y| row_has_ink(*y)) else {
+        return (0, height);
+    };
+    let last_ink_row = (first_ink_row..height)
+        .rfind(|y| row_has_ink(*y))
+        .unwrap_or(first_ink_row);
+
+    (
+        first_ink_row.saturating_sub(RASTER_VERTICAL_PADDING_DOTS),
+        (last_ink_row + 1 + RASTER_VERTICAL_PADDING_DOTS).min(height),
+    )
 }
 
 fn split_ring_number(value: &str) -> (Option<&str>, &str) {
@@ -396,17 +409,12 @@ mod tests {
     }
 
     #[test]
-    fn qr_payload_contains_ring_timestamp_channel_and_crc_field() {
+    fn qr_payload_contains_ring_unix_timestamp_and_channel() {
         let ticket = PrintTicket::new("2026-03-0015369", "勇夺桂冠", "5");
         assert_eq!(
-            ticket.qr_payload("20261018173002"),
-            "ycd://2026-03-0015369&ts=20261018173002&ch=05&crc=E6"
+            ticket.qr_payload(1_792_392_979),
+            "ycd:2026-03-0015369@1792392979&ch05"
         );
-    }
-
-    #[test]
-    fn crc8_smbus_matches_standard_check_value() {
-        assert_eq!(crc8_smbus(b"123456789"), 0xF4);
     }
 
     #[test]
@@ -424,6 +432,28 @@ mod tests {
                 .any(|part| part == [0x1d, 0x76, 0x30, 0x00, 2, 0, 2, 0])
         );
         assert!(bytes.ends_with(&[0x1d, 0x56, 0x42, 0x00]));
+        assert_eq!(bytes.len(), 2 + 3 + 8 + 4 + 4);
+    }
+
+    #[test]
+    fn raster_trims_blank_rows_and_keeps_safe_padding() {
+        let mut bitmap = MonochromeBitmap {
+            width: 8,
+            height: 30,
+            pixels: vec![255; 8 * 30],
+        };
+        bitmap.pixels[12 * 8] = 0;
+        bitmap.pixels[14 * 8 + 7] = 0;
+
+        assert_eq!(vertical_print_bounds(&bitmap), (4, 23));
+
+        let bytes = escpos_raster_receipt(&bitmap);
+        assert!(
+            bytes
+                .windows(8)
+                .any(|part| part == [0x1d, 0x76, 0x30, 0x00, 1, 0, 19, 0])
+        );
+        assert_eq!(bytes.len(), 2 + 3 + 8 + 19 + 4);
     }
 
     #[test]

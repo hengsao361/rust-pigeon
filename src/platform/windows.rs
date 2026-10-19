@@ -13,6 +13,7 @@ use std::{
         mpsc::{self, Receiver},
     },
     thread,
+    time::{SystemTime, UNIX_EPOCH},
 };
 use windows::{
     Win32::{
@@ -389,10 +390,10 @@ fn load_font(candidates: &[&str], required_character: Option<char>) -> Result<Fo
 fn local_timestamp() -> ReceiptTimestamp {
     let time = unsafe { GetLocalTime() };
     ReceiptTimestamp {
-        compact: format!(
-            "{:04}{:02}{:02}{:02}{:02}{:02}",
-            time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond
-        ),
+        unix_seconds: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
         display: format!(
             "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
             time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond
