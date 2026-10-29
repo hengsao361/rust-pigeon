@@ -69,7 +69,15 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.include_tesseract }}
         shell: pwsh
         run: |
-          choco install tesseract --yes --no-progress
+          $tesseractPackageVersion = (Get-Content "TESSERACT_VERSION" -Raw).Trim()
+          if ($tesseractPackageVersion -notmatch "^\d+\.\d+\.\d+\.\d+$") {
+            throw "Invalid pinned Chocolatey Tesseract version: $tesseractPackageVersion"
+          }
+
+          choco install tesseract --version="$tesseractPackageVersion" --yes --no-progress
+          if ($LASTEXITCODE -ne 0) {
+            throw "Chocolatey failed to install Tesseract package $tesseractPackageVersion"
+          }
           $tesseractDir = Join-Path $env:ProgramFiles "Tesseract-OCR"
           $tesseractExe = Join-Path $tesseractDir "tesseract.exe"
           $englishModel = Join-Path $tesseractDir "tessdata\eng.traineddata"
@@ -111,7 +119,9 @@ jobs:
             $requiredFiles = @(
               (Join-Path $verifyDir "rust-pigeon-v$env:FILE_VERSION.exe"),
               (Join-Path $verifyDir "tesseract\tesseract.exe"),
-              (Join-Path $verifyDir "tesseract\tessdata\eng.traineddata")
+              (Join-Path $verifyDir "tesseract\tessdata\eng.traineddata"),
+              (Join-Path $verifyDir "tesseract\PACKAGE_VERSION.txt"),
+              (Join-Path $verifyDir "tesseract\VERSION.txt")
             )
           } else {
             $requiredFiles = @($env:PACKAGE_PATH)
@@ -123,6 +133,14 @@ jobs:
           foreach ($file in $requiredFiles) {
             if (-not (Test-Path $file)) {
               throw "Missing required package file: $file"
+            }
+          }
+
+          if ($includeTesseract) {
+            $expectedTesseractPackageVersion = (Get-Content "TESSERACT_VERSION" -Raw).Trim()
+            $packagedTesseractPackageVersion = (Get-Content (Join-Path $verifyDir "tesseract\PACKAGE_VERSION.txt") -Raw).Trim()
+            if ($packagedTesseractPackageVersion -ne $expectedTesseractPackageVersion) {
+              throw "Packaged Tesseract version $packagedTesseractPackageVersion does not match pinned version $expectedTesseractPackageVersion"
             }
           }
 

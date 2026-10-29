@@ -52,7 +52,9 @@ Windows 屏幕区域足环号 OCR 监控与佳博 GP-801CE 静默打印客户端
 
 - Windows 10/11 x64。
 - 佳博 GP-801CE 已安装官方驱动，并能在“打印机和扫描仪”中正常测试打印。
-- Tesseract 5 英文模型。完整版发布包将其固定放在程序旁的 `tesseract` 子目录，不需要配置 PATH，主界面也不显示其内部路径；默认精简包不包含 Tesseract。
+- Tesseract 5.2 或更高版本及英文模型。完整版发布包将其固定放在程序旁的 `tesseract` 子目录，不需要配置 PATH，主界面也不显示其内部路径；默认精简包不包含 Tesseract。
+
+程序会把预处理图片写入 `%TEMP%\RustPigeon\ocr`，使用图片文件和结果文件调用 Tesseract，不再通过标准输入/输出传输图片和识别文字。单次识别超过 10 秒会终止对应进程并显示超时错误；每次调用同时固定 `OMP_THREAD_LIMIT=1`，避免部分 Windows 环境中的 OpenMP 卡死。正常完成或报错后，本次临时图片和结果文件都会自动删除。
 
 所有应用数据统一保存在 `%APPDATA%\RustPigeon`：
 
@@ -114,7 +116,7 @@ powershell -ExecutionPolicy Bypass -File scripts\package-windows.ps1
 
 CI 使用 GitHub Actions 的递增 `run_number` 作为构建号。例如基础版本为 `0.1.0`、第 42 次构建时，软件主页面显示 `v0.1.0+42`，精简构建文件名为 `rust-pigeon-v0.1.0-build.42.exe`。本地打包可用 `-BuildNumber 42` 指定同样的构建号；不传且不在 CI 中运行时只使用基础版本。
 
-需要生成包含 Tesseract 的完整包时，先安装 Tesseract 5，然后增加 `-IncludeTesseract`：
+需要生成包含 Tesseract 的完整包时，先安装 Tesseract 5.2 或更高版本，然后增加 `-IncludeTesseract`：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\package-windows.ps1 `
@@ -129,6 +131,8 @@ powershell -ExecutionPolicy Bypass -File scripts\package-windows.ps1 `
   -TesseractDir "D:\Tools\Tesseract-OCR"
 ```
 
+GitHub Actions 安装的 Chocolatey Tesseract 包版本固定记录在 [`TESSERACT_VERSION`](TESSERACT_VERSION)，不会自动漂移到新版本。完整 ZIP 内的 `tesseract\PACKAGE_VERSION.txt` 记录 Chocolatey 包版本，`tesseract\VERSION.txt` 保存实际 `tesseract --version` 输出；本地打包也会校验实际版本不低于 5.2。
+
 首次在目标设备上应先点击“测试打印并切纸”，确认 GP-801CE 驱动允许 RAW ESC/POS 数据和 `GS V 66 0` 切刀指令，再开启正式监控。
 
 ## GitHub Actions 自动打包
@@ -138,8 +142,8 @@ powershell -ExecutionPolicy Bypass -File scripts\package-windows.ps1 `
 1. 安装稳定版 Rust，运行单元测试和 Clippy。
 2. 使用 GitHub Actions `run_number` 生成递增构建版本，并编译进软件主页面。
 3. 默认调用 `scripts/package-windows.ps1`，直接生成带版本号的单个 EXE，不再生成项目内层 ZIP。
-4. 手动运行工作流时可勾选 `include_tesseract`，生成包含 Tesseract 和英文模型、文件名带版本号的完整 ZIP。
-5. 根据所选模式校验 EXE 或 ZIP 内容，并上传构建产物保留 14 天。
+4. 手动运行工作流时可勾选 `include_tesseract`，安装 `TESSERACT_VERSION` 指定的版本，并生成包含 Tesseract、英文模型和版本记录的完整 ZIP。
+5. 根据所选模式校验 EXE 或 ZIP 内容及 Tesseract 固定版本，并上传构建产物保留 14 天。
 
 下载方法：进入 GitHub 仓库的 **Actions** 页面，打开成功的 **Windows build** 任务，在页面底部 **Artifacts** 区域下载带版本号的产物。GitHub Actions 自身会把 Artifact 包装成下载用 ZIP；默认构建中不再嵌套第二层 ZIP，解压 Artifact 后直接得到 EXE。
 
