@@ -167,27 +167,65 @@ fn parse_exact_mode(input: &str, mode: ParseMode) -> Option<RingNumber> {
     let normalized = normalize_candidate(input);
     let parts: Vec<_> = normalized.split('-').collect();
 
-    let valid = match (mode, parts.as_slice()) {
+    let parsed = match (mode, parts.as_slice()) {
         (ParseMode::StandardThreePart, [year, region, serial]) => {
-            valid_standard_three_part(year, region, serial)
+            canonical_standard_three_part(year, region, serial)
         }
         (ParseMode::GeneralSingleLine, [year, region, serial]) => {
-            valid_standard_three_part(year, region, serial)
+            canonical_standard_three_part(year, region, serial)
         }
-        (ParseMode::GeneralSingleLine, [prefix, serial]) => {
-            (valid_region(prefix) && valid_digits(serial, 7))
-                || (valid_memorial_prefix(prefix) && valid_digits(serial, 6))
+        (ParseMode::GeneralSingleLine, [prefix, serial]) => canonical_two_part(prefix, serial),
+        (ParseMode::GeneralSingleLine, [digits]) => canonical_digits(digits, 7),
+        (ParseMode::Digits(length), [digits]) => {
+            canonical_digits(digits, length)
         }
-        (ParseMode::GeneralSingleLine, [digits]) => valid_digits(digits, 7),
-        (ParseMode::Digits(length), [digits]) => valid_digits(digits, length),
-        _ => false,
+        _ => None,
     };
 
-    valid.then_some(RingNumber(normalized))
+    parsed.map(RingNumber)
 }
 
-fn valid_standard_three_part(year: &str, region: &str, serial: &str) -> bool {
-    valid_year(year) && valid_region(region) && valid_digits(serial, 7)
+fn canonical_standard_three_part(year: &str, region: &str, serial: &str) -> Option<String> {
+    let (_, year) = split_text_prefix(year);
+    let year = normalize_digits(year);
+    let region = normalize_digits(region);
+    let serial = normalize_digits(serial);
+    (valid_year(&year) && valid_region(&region) && valid_digits(&serial, 7))
+        .then(|| format!("{year}-{region}-{serial}"))
+}
+
+fn canonical_two_part(prefix: &str, serial: &str) -> Option<String> {
+    let prefix_digits = normalize_digits(prefix);
+    let serial = normalize_digits(serial);
+    if valid_region(&prefix_digits) && valid_digits(&serial, 7) {
+        return Some(format!("{prefix_digits}-{serial}"));
+    }
+
+    canonical_memorial_prefix(prefix)
+        .filter(|_| valid_digits(&serial, 6))
+        .map(|prefix| format!("{prefix}-{serial}"))
+}
+
+fn canonical_memorial_prefix(value: &str) -> Option<String> {
+    let (marker, code) = value
+        .strip_prefix("JNH")
+        .map(|code| ("JNH", code))
+        .or_else(|| value.strip_prefix("JN").map(|code| ("JN", code)))?;
+    let code = normalize_digits(code);
+    valid_digits(&code, 2).then(|| format!("{marker}{code}"))
+}
+
+fn canonical_digits(value: &str, length: usize) -> Option<String> {
+    let digits = normalize_digits(value);
+    valid_digits(&digits, length).then_some(digits)
+}
+
+fn split_text_prefix(value: &str) -> (&str, &str) {
+    let prefix_length = value
+        .bytes()
+        .take_while(u8::is_ascii_alphabetic)
+        .count();
+    value.split_at(prefix_length)
 }
 
 fn candidate_variants(tokens: &[&str]) -> Vec<String> {
@@ -249,8 +287,13 @@ fn normalize_candidate(input: &str) -> String {
 }
 
 fn normalize_part(part: &str) -> String {
-    part.chars()
-        .map(|ch| match ch.to_ascii_uppercase() {
+    part.to_ascii_uppercase()
+}
+
+fn normalize_digits(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| match ch {
             'O' => '0',
             'I' | 'L' => '1',
             other => other,
@@ -259,7 +302,9 @@ fn normalize_part(part: &str) -> String {
 }
 
 fn valid_year(value: &str) -> bool {
-    value.len() == 4 && value.bytes().all(|byte| byte.is_ascii_digit()) && value.starts_with("20")
+    let is_numeric = value.bytes().all(|byte| byte.is_ascii_digit());
+    (value.len() == 2 && is_numeric)
+        || (value.len() == 4 && is_numeric && value.starts_with("20"))
 }
 
 fn valid_region(value: &str) -> bool {
@@ -269,13 +314,6 @@ fn valid_region(value: &str) -> bool {
     value
         .parse::<u8>()
         .is_ok_and(|code| (MIN_REGION_CODE..=MAX_REGION_CODE).contains(&code))
-}
-
-fn valid_memorial_prefix(value: &str) -> bool {
-    value
-        .strip_prefix("JNH")
-        .or_else(|| value.strip_prefix("JN"))
-        .is_some_and(|code| valid_digits(code, 2))
 }
 
 fn valid_digits(value: &str, length: usize) -> bool {
@@ -290,6 +328,7 @@ mod tests {
     fn general_accepts_all_supported_standard_and_memorial_shapes() {
         for value in [
             "2026-10-0178948",
+            "26-12-8877665",
             "03-0482758",
             "0237849",
             "JN05-123456",
@@ -366,6 +405,19 @@ mod tests {
     }
 
     #[test]
+    fn extracts_two_digit_year_and_text_prefixed_standard_rings() {
+        for (raw, expected) in [
+            ("26-12-8877665", "26-12-8877665"),
+            ("CHN2026-17-3322445", "2026-17-3322445"),
+            ("RING2026-17-3322445", "2026-17-3322445"),
+        ] {
+            let values = extract_ring_numbers(raw, OcrFormat::General);
+            assert_eq!(values.len(), 1, "{raw:?}");
+            assert_eq!(values[0].as_str(), expected, "{raw:?}");
+        }
+    }
+
+    #[test]
     fn multiline_three_part_takes_precedence_over_its_shorter_components() {
         for (raw, expected) in [
             ("2025-04-0347618", "2025-04-0347618"),
@@ -433,7 +485,7 @@ mod tests {
 
     #[test]
     fn malformed_long_numbers_do_not_downgrade_to_valid_subnumbers() {
-        assert!(extract_ring_numbers("RING2026-10-0178948", OcrFormat::General).is_empty());
+        assert!(extract_ring_numbers("1232026-10-0178948", OcrFormat::General).is_empty());
         assert!(extract_ring_numbers("2026-99-0178948", OcrFormat::General).is_empty());
         assert_eq!(
             extract_ring_numbers("RING-03-0482758", OcrFormat::General)[0].as_str(),

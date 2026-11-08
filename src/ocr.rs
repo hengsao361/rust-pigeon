@@ -1,5 +1,5 @@
 use crate::platform::CapturedImage;
-use image::{DynamicImage, GrayImage, ImageBuffer, ImageFormat, Rgba, imageops::FilterType};
+use image::{DynamicImage, GrayImage, ImageBuffer, ImageFormat, Rgba};
 use std::{
     fs,
     io,
@@ -162,24 +162,7 @@ fn wait_with_timeout(mut child: Child, timeout: Duration) -> Result<Output, Wait
 }
 
 fn preprocess(image: DynamicImage) -> GrayImage {
-    let gray = image.into_luma8();
-    let scale = if gray.height() < 80 {
-        3
-    } else if gray.height() < 160 {
-        2
-    } else {
-        1
-    };
-    let mut gray = if scale > 1 {
-        image::imageops::resize(
-            &gray,
-            gray.width().saturating_mul(scale),
-            gray.height().saturating_mul(scale),
-            FilterType::Lanczos3,
-        )
-    } else {
-        gray
-    };
+    let mut gray = image.into_luma8();
 
     let average = gray.pixels().map(|pixel| pixel[0] as u64).sum::<u64>()
         / (gray.width() as u64 * gray.height() as u64).max(1);
