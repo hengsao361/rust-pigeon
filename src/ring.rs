@@ -41,14 +41,13 @@ impl OcrFormat {
 #[derive(Debug, Clone, Copy)]
 enum ParseMode {
     GeneralSingleLine,
-    StandardThreePart,
     Digits(usize),
 }
 
 impl ParseMode {
     const fn max_candidate_tokens(self) -> usize {
         match self {
-            Self::GeneralSingleLine | Self::StandardThreePart => 13,
+            Self::GeneralSingleLine => 13,
             Self::Digits(length) => length,
         }
     }
@@ -76,28 +75,12 @@ impl RingNumber {
 pub fn extract_ring_numbers(raw: &str, format: OcrFormat) -> Vec<RingNumber> {
     let mut found = BTreeSet::new();
     match format {
-        OcrFormat::General => extract_general(raw, &mut found),
+        OcrFormat::General => extract_each_line(raw, ParseMode::GeneralSingleLine, &mut found),
         OcrFormat::SingleLineDigits6 => extract_each_line(raw, ParseMode::Digits(6), &mut found),
         OcrFormat::SingleLineDigits5 => extract_each_line(raw, ParseMode::Digits(5), &mut found),
         OcrFormat::SingleLineDigits4 => extract_each_line(raw, ParseMode::Digits(4), &mut found),
     }
     found.into_iter().map(RingNumber).collect()
-}
-
-fn extract_general(raw: &str, found: &mut BTreeSet<String>) {
-    extract_each_line(raw, ParseMode::GeneralSingleLine, found);
-
-    let mut three_part = BTreeSet::new();
-    extract_from_segment(raw, ParseMode::StandardThreePart, &mut three_part);
-    for full_number in &three_part {
-        if let Some((_, two_part)) = full_number.split_once('-') {
-            found.remove(two_part);
-        }
-        if let Some((_, serial)) = full_number.rsplit_once('-') {
-            found.remove(serial);
-        }
-    }
-    found.extend(three_part);
 }
 
 fn extract_each_line(raw: &str, mode: ParseMode, found: &mut BTreeSet<String>) {
@@ -168,14 +151,13 @@ fn parse_exact_mode(input: &str, mode: ParseMode) -> Option<RingNumber> {
     let parts: Vec<_> = normalized.split('-').collect();
 
     let parsed = match (mode, parts.as_slice()) {
-        (ParseMode::StandardThreePart, [year, region, serial]) => {
-            canonical_standard_three_part(year, region, serial)
-        }
         (ParseMode::GeneralSingleLine, [year, region, serial]) => {
             canonical_standard_three_part(year, region, serial)
         }
         (ParseMode::GeneralSingleLine, [prefix, serial]) => canonical_two_part(prefix, serial),
-        (ParseMode::GeneralSingleLine, [digits]) => canonical_digits(digits, 7),
+        (ParseMode::GeneralSingleLine, [digits]) => {
+            canonical_compact_standard(digits).or_else(|| canonical_digits(digits, 7))
+        }
         (ParseMode::Digits(length), [digits]) => {
             canonical_digits(digits, length)
         }
@@ -218,6 +200,18 @@ fn canonical_memorial_prefix(value: &str) -> Option<String> {
 fn canonical_digits(value: &str, length: usize) -> Option<String> {
     let digits = normalize_digits(value);
     valid_digits(&digits, length).then_some(digits)
+}
+
+fn canonical_compact_standard(value: &str) -> Option<String> {
+    let digits = normalize_digits(value);
+    if !valid_digits(&digits, 13) {
+        return None;
+    }
+    let year = &digits[..4];
+    let region = &digits[4..6];
+    let serial = &digits[6..];
+    (valid_year(year) && valid_region(region) && valid_digits(serial, 7))
+        .then(|| format!("{year}-{region}-{serial}"))
 }
 
 fn split_text_prefix(value: &str) -> (&str, &str) {
@@ -418,22 +412,48 @@ mod tests {
     }
 
     #[test]
-    fn multiline_three_part_takes_precedence_over_its_shorter_components() {
-        for (raw, expected) in [
-            ("2025-04-0347618", "2025-04-0347618"),
-            ("2025-02\n0348234", "2025-02-0348234"),
-            ("2025-04-\n0347618", "2025-04-0347618"),
-            ("2026\n03-0498274", "2026-03-0498274"),
-            ("2026\n0 1\n038 7 764", "2026-01-0387764"),
-        ] {
+    fn extracts_compact_thirteen_digit_standard_rings() {
+        for raw in ["2026011919631", "2026 01 191 9631"] {
             let values = extract_ring_numbers(raw, OcrFormat::General);
             assert_eq!(values.len(), 1, "{raw:?}");
-            assert_eq!(values[0].as_str(), expected, "{raw:?}");
+            assert_eq!(values[0].as_str(), "2026-01-1919631", "{raw:?}");
+        }
+
+        assert_eq!(
+            RingNumber::parse_exact("2026011919631", OcrFormat::General)
+                .unwrap()
+                .as_str(),
+            "2026-01-1919631"
+        );
+        for value in [
+            "2026001919631",
+            "2026341919631",
+            "1999011919631",
+            "202601191963",
+            "20260119196310",
+        ] {
+            assert!(
+                RingNumber::parse_exact(value, OcrFormat::General).is_none(),
+                "{value}"
+            );
         }
     }
 
     #[test]
-    fn only_standard_three_part_can_cross_lines() {
+    fn never_combines_ring_number_parts_across_lines() {
+        assert_eq!(
+            extract_ring_numbers("2025-02\n0348234", OcrFormat::General)[0].as_str(),
+            "0348234"
+        );
+        assert_eq!(
+            extract_ring_numbers("2026\n03-0498274", OcrFormat::General)[0].as_str(),
+            "03-0498274"
+        );
+        assert_eq!(
+            extract_ring_numbers("2026\n0 1\n038 7 764", OcrFormat::General)[0].as_str(),
+            "0387764"
+        );
+        assert!(extract_ring_numbers("2026-01-000\n0007", OcrFormat::General).is_empty());
         assert!(extract_ring_numbers("023\n7849", OcrFormat::General).is_empty());
         assert!(extract_ring_numbers("JN05-\n123456", OcrFormat::General).is_empty());
         assert_eq!(
