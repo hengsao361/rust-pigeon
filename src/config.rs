@@ -1,4 +1,5 @@
 use crate::{
+    ocr::OcrPsm,
     receipt::{random_business_content, sanitize_channel_input},
     ring::OcrFormat,
 };
@@ -48,6 +49,7 @@ pub struct AppConfig {
     pub poll_interval_ms: u64,
     pub stable_observations: u8,
     pub repeat_ocr_during_stability: bool,
+    pub ocr_psm: OcrPsm,
     pub ocr_format: OcrFormat,
     pub last_printed: Option<String>,
     pub channel: String,
@@ -65,6 +67,7 @@ impl Default for AppConfig {
             poll_interval_ms: 500,
             stable_observations: 3,
             repeat_ocr_during_stability: false,
+            ocr_psm: OcrPsm::default(),
             ocr_format: OcrFormat::default(),
             last_printed: None,
             channel: "0".to_owned(),
@@ -169,10 +172,15 @@ mod tests {
     fn recognition_options_have_safe_defaults_for_older_configs() {
         let default_config = AppConfig::default();
         assert!(!default_config.repeat_ocr_during_stability);
+        assert_eq!(default_config.ocr_psm, OcrPsm::Psm7);
         assert_eq!(default_config.ocr_format, OcrFormat::General);
         assert_eq!(
             serde_json::to_value(&default_config).unwrap()["repeat_ocr_during_stability"],
             false
+        );
+        assert_eq!(
+            serde_json::to_value(&default_config).unwrap()["ocr_psm"],
+            "psm7"
         );
         assert_eq!(
             serde_json::to_value(&default_config).unwrap()["ocr_format"],
@@ -181,6 +189,7 @@ mod tests {
 
         let config: AppConfig = serde_json::from_str("{}").unwrap();
         assert!(!config.repeat_ocr_during_stability);
+        assert_eq!(config.ocr_psm, OcrPsm::Psm7);
         assert_eq!(config.ocr_format, OcrFormat::General);
 
         for legacy_value in [

@@ -83,7 +83,10 @@ fn run_monitor(
 ) {
     let mut active = false;
     let mut gate = StabilityGate::new(config.stable_observations, config.last_printed.clone());
-    let mut ocr: Box<dyn OcrEngine> = Box::new(TesseractCli::new(&config.tesseract_path));
+    let mut ocr: Box<dyn OcrEngine> = Box::new(TesseractCli::new(
+        &config.tesseract_path,
+        config.ocr_psm,
+    ));
     let mut last_fingerprint = None;
     let mut last_candidate: Option<String> = None;
 
@@ -95,11 +98,12 @@ fn run_monitor(
             Duration::from_secs(60)
         }) {
             Ok(MonitorCommand::Configure(next)) => {
-                let ocr_changed = next.tesseract_path != config.tesseract_path;
+                let ocr_changed = next.tesseract_path != config.tesseract_path
+                    || next.ocr_psm != config.ocr_psm;
                 config = next;
                 gate = StabilityGate::new(config.stable_observations, config.last_printed.clone());
                 if ocr_changed {
-                    ocr = Box::new(TesseractCli::new(&config.tesseract_path));
+                    ocr = Box::new(TesseractCli::new(&config.tesseract_path, config.ocr_psm));
                 }
                 last_fingerprint = None;
                 last_candidate = None;
@@ -162,12 +166,13 @@ fn run_monitor(
         loop {
             match commands.try_recv() {
                 Ok(MonitorCommand::Configure(next)) => {
-                    let ocr_changed = next.tesseract_path != config.tesseract_path;
+                    let ocr_changed = next.tesseract_path != config.tesseract_path
+                        || next.ocr_psm != config.ocr_psm;
                     config = next;
                     gate =
                         StabilityGate::new(config.stable_observations, config.last_printed.clone());
                     if ocr_changed {
-                        ocr = Box::new(TesseractCli::new(&config.tesseract_path));
+                        ocr = Box::new(TesseractCli::new(&config.tesseract_path, config.ocr_psm));
                     }
                     last_fingerprint = None;
                     last_candidate = None;

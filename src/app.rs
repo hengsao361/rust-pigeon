@@ -1,6 +1,7 @@
 use crate::{
     config::AppConfig,
     monitor::{MonitorCommand, MonitorEvent, MonitorHandle},
+    ocr::OcrPsm,
     platform::{
         NativePlatform, Platform, RegionOverlay, RegionSelection, RegionSelectionReceiver,
         spawn_region_hotkey, spawn_region_overlay, spawn_region_selector,
@@ -12,7 +13,7 @@ use crate::{
 use eframe::egui::{self, Align, Color32, Vec2, ViewportCommand};
 use std::sync::{Arc, mpsc::Receiver};
 
-pub const MAIN_WINDOW_SIZE: Vec2 = Vec2::new(620.0, 600.0);
+pub const MAIN_WINDOW_SIZE: Vec2 = Vec2::new(620.0, 640.0);
 pub const APP_VERSION: &str = match option_env!("RUST_PIGEON_BUILD_VERSION") {
     Some(version) => version,
     None => env!("CARGO_PKG_VERSION"),
@@ -319,16 +320,19 @@ impl PigeonApp {
                 {
                     self.set_active(false);
                 }
-                let repeated_ocr = ui
-                    .checkbox(
-                        &mut self.config.repeat_ocr_during_stability,
-                        "稳定确认时重复 OCR",
-                    )
-                    .on_hover_text("开启后，新号码打印前会实际执行 3 次 OCR；默认关闭");
-                if repeated_ocr.changed() {
-                    self.apply_config();
+            });
+
+            ui.add_space(6.0);
+            ui.label("Tesseract 页面分割模式（单选）");
+            let previous_psm = self.config.ocr_psm;
+            ui.horizontal_wrapped(|ui| {
+                for psm in OcrPsm::ALL {
+                    ui.radio_value(&mut self.config.ocr_psm, psm, psm.label());
                 }
             });
+            if previous_psm != self.config.ocr_psm {
+                self.apply_config();
+            }
 
             ui.add_space(6.0);
             ui.label("OCR 识别格式（单选）");

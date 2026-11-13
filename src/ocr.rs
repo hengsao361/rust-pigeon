@@ -1,5 +1,6 @@
 use crate::platform::CapturedImage;
 use image::{DynamicImage, GrayImage, ImageBuffer, ImageFormat, Rgba};
+use serde::{Deserialize, Serialize};
 use std::{
     fs,
     io,
@@ -13,18 +14,49 @@ use std::{
 const TESSERACT_TIMEOUT: Duration = Duration::from_secs(10);
 static OCR_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OcrPsm {
+    #[default]
+    Psm7,
+    Psm8,
+    Psm13,
+}
+
+impl OcrPsm {
+    pub const ALL: [Self; 3] = [Self::Psm7, Self::Psm8, Self::Psm13];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Psm7 => "PSM 7（单行）",
+            Self::Psm8 => "PSM 8（单词）",
+            Self::Psm13 => "PSM 13（原始单行）",
+        }
+    }
+
+    const fn as_arg(self) -> &'static str {
+        match self {
+            Self::Psm7 => "7",
+            Self::Psm8 => "8",
+            Self::Psm13 => "13",
+        }
+    }
+}
+
 pub trait OcrEngine: Send {
     fn recognize(&mut self, image: &CapturedImage) -> Result<String, String>;
 }
 
 pub struct TesseractCli {
     executable: PathBuf,
+    psm: OcrPsm,
 }
 
 impl TesseractCli {
-    pub fn new(path: impl AsRef<Path>) -> Self {
+    pub fn new(path: impl AsRef<Path>, psm: OcrPsm) -> Self {
         Self {
             executable: path.as_ref().to_owned(),
+            psm,
         }
     }
 }
@@ -45,7 +77,7 @@ impl OcrEngine for TesseractCli {
         command
             .arg(&temp_files.input)
             .arg(&temp_files.output_base)
-            .args(["-l", "eng", "--psm", "7"])
+            .args(["-l", "eng", "--psm", self.psm.as_arg()])
             .env("OMP_THREAD_LIMIT", "1")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -222,6 +254,13 @@ fn otsu_threshold(image: &GrayImage) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn supported_psm_values_have_expected_cli_arguments() {
+        assert_eq!(OcrPsm::Psm7.as_arg(), "7");
+        assert_eq!(OcrPsm::Psm8.as_arg(), "8");
+        assert_eq!(OcrPsm::Psm13.as_arg(), "13");
+    }
 
     #[test]
     fn temp_files_are_unique_and_removed_on_drop() {
